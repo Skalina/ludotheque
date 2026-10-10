@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ma ludothèque</title>
+    <link rel="icon" id="favicon" href="/favicon.svg" />
+    <script type="module">
+      if (import.meta.env.DEV) {
+        document.getElementById('favicon').href = '/favicon-dev.svg';
+      }
+    </script>
   </head>
   <body style="margin:0;">
     <div id="root"></div>
