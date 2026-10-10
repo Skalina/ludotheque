@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers } from "lucide-react";
+import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail } from "lucide-react";
 import Papa from "papaparse";
+import { supabase, supabaseConfigured } from "./supabaseClient.js";
+import { fetchAllGames, pushChanges } from "./cloud.js";
 
 const STATUS = {
   wishlist: { label: "Envie", color: "#8B7BB0" },
@@ -213,209 +215,7 @@ function metacriticColor(score) {
   return "#D9614F";
 }
 
-export default function Ludotheque() {
-  const [games, setGames] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState("");
-  const [filterConsole, setFilterConsole] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [sortBy, setSortBy] = useState("title");
-  const [selected, setSelected] = useState(null); // game being viewed/edited
-  const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [pickedGame, setPickedGame] = useState(null); // "empty" | game | null
-  const [groupByConsole, setGroupByConsole] = useState(false);
-  const backupInputRef = useRef(null);
-  const saveTimer = useRef(null);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("ludotheque-games");
-      setGames(raw ? JSON.parse(raw) : []);
-    } catch (e) {
-      setGames([]);
-    }
-  }, []);
-
-  function persist(next) {
-    setGames(next);
-    setSaving(true);
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      try {
-        localStorage.setItem("ludotheque-games", JSON.stringify(next));
-      } catch (e) {
-        console.error("Erreur de sauvegarde", e);
-      } finally {
-        setSaving(false);
-      }
-    }, 300);
-  }
-
-  function upsertGame(game) {
-    const exists = games.some((g) => g.id === game.id);
-    const next = exists ? games.map((g) => (g.id === game.id ? game : g)) : [...games, game];
-    persist(next);
-  }
-
-  function deleteGame(id) {
-    persist(games.filter((g) => g.id !== id));
-    setSelected(null);
-  }
-
-  function importGames(newGames) {
-    const byTitle = new Map(games.map((g) => [g.title.trim().toLowerCase(), g]));
-    const merged = [...games];
-    let updated = 0;
-    let added = 0;
-    newGames.forEach((ng) => {
-      const key = ng.title.trim().toLowerCase();
-      const existing = byTitle.get(key);
-      if (existing) {
-        const idx = merged.findIndex((g) => g.id === existing.id);
-        // On ne remplace un champ existant que si le nouveau n'est pas vide, pour ne pas écraser des retouches manuelles
-        const patched = { ...existing };
-        Object.keys(ng).forEach((k) => {
-          if (k === "id") return;
-          const val = ng[k];
-          const isEmpty = val === "" || val === null || (Array.isArray(val) && val.length === 0);
-          if (!isEmpty) patched[k] = val;
-        });
-        merged[idx] = patched;
-        updated++;
-      } else {
-        merged.push({ ...emptyGame(), ...ng, id: ng.id });
-        added++;
-      }
-    });
-    persist(merged);
-    return { updated, added };
-  }
-
-  function pickRandom() {
-    const candidates = games.filter((g) => g.status === "backlog");
-    if (!candidates.length) {
-      setPickedGame("empty");
-      return;
-    }
-    const weights = candidates.map((g) => {
-      const m = Number(g.metacritic);
-      return m && !isNaN(m) ? m : 55;
-    });
-    const total = weights.reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
-    for (let i = 0; i < candidates.length; i++) {
-      r -= weights[i];
-      if (r <= 0) {
-        setPickedGame(candidates[i]);
-        return;
-      }
-    }
-    setPickedGame(candidates[candidates.length - 1]);
-  }
-
-  function exportBackup() {
-    const blob = new Blob([JSON.stringify(games, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `ludotheque-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function restoreBackup(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(reader.result);
-        if (!Array.isArray(parsed)) throw new Error("format invalide");
-        if (window.confirm(`Ceci va remplacer toute ta ludothèque actuelle (${games.length} jeux) par le contenu de ce fichier (${parsed.length} jeux). Continuer ?`)) {
-          persist(parsed);
-        }
-      } catch (err) {
-        alert("Ce fichier ne semble pas être un backup valide.");
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  }
-
-  const consoles = useMemo(() => {
-    if (!games) return [];
-    return Array.from(new Set(games.map((g) => g.console).filter(Boolean))).sort();
-  }, [games]);
-
-  const filtered = useMemo(() => {
-    if (!games) return [];
-    let list = games.filter((g) => {
-      const matchSearch = g.title.toLowerCase().includes(search.toLowerCase());
-      const matchConsole = !filterConsole || g.console === filterConsole;
-      const matchStatus = !filterStatus || g.status === filterStatus;
-      return matchSearch && matchConsole && matchStatus;
-    });
-    list.sort((a, b) => {
-      if (sortBy === "title") return a.title.localeCompare(b.title);
-      if (sortBy === "console") return (a.console || "").localeCompare(b.console || "");
-      if (sortBy === "status") return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
-      return 0;
-    });
-    return list;
-  }, [games, search, filterConsole, filterStatus, sortBy]);
-
-  const counts = useMemo(() => {
-    if (!games) return {};
-    const c = {};
-    STATUS_ORDER.forEach((s) => (c[s] = 0));
-    games.forEach((g) => (c[g.status] = (c[g.status] || 0) + 1));
-    return c;
-  }, [games]);
-
-  const totalValue = useMemo(() => {
-    if (!games) return 0;
-    return games.reduce((sum, g) => {
-      const n = parseFloat(String(g.price || "").replace(",", ".").replace(/[^\d.]/g, ""));
-      return isNaN(n) ? sum : sum + n;
-    }, 0);
-  }, [games]);
-
-  const groupedByConsole = useMemo(() => {
-    const map = new Map();
-    filtered.forEach((g) => {
-      const key = g.console || "Sans console";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(g);
-    });
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filtered]);
-
-  function renderSpine(g) {
-    const style = getSpineStyle(g.console);
-    return (
-      <div
-        key={g.id}
-        className="lt-spine"
-        style={{ background: style.bg, width: style.width, height: style.height }}
-        onClick={() => setSelected(g)}
-        title={g.title}
-      >
-        <span className="lt-spine-title" style={{ color: style.text, maxHeight: style.height - 45 }}>
-          {g.title || "Sans titre"}
-        </span>
-        {style.label && (
-          <span className="lt-spine-label" style={{ color: style.text, opacity: 0.55 }}>
-            {style.label}
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="lt-root">
-      <style>{`
+const GLOBAL_CSS = `
         .lt-root {
           --bg: #0A0A0C;
           --surface: #161619;
@@ -587,6 +387,42 @@ export default function Ludotheque() {
           align-items: center;
         }
         .lt-icon-btn:hover { border-color: var(--gold); color: var(--gold); }
+        .lt-header-right { display: flex; align-items: center; gap: 12px; }
+        .lt-login-wrap {
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+        }
+        .lt-login-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          box-shadow: var(--shadow-lg);
+          padding: 28px 26px;
+          width: 100%;
+          max-width: 360px;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+        .lt-login-card h1 { margin: 0; font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+        .lt-login-card p { margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+        .lt-login-card input {
+          width: 100%;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 7px;
+          padding: 10px 12px;
+          font-size: 14px;
+          outline: none;
+        }
+        .lt-login-card input:focus { border-color: var(--gold); }
+        .lt-login-card .lt-add-btn { margin-left: 0; justify-content: center; }
+        .lt-login-error { color: #E07A67; font-size: 12px; }
+        .lt-login-sent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.5; }
         .lt-toggle-active { border-color: var(--gold); color: var(--gold); }
         .lt-spine {
           border-radius: 4px 4px 3px 3px;
@@ -1130,7 +966,302 @@ export default function Ludotheque() {
           .lt-modal { flex-direction: column; max-height: 92vh; }
           .lt-box-wrap { width: 100%; flex-direction: row; padding: 16px; }
         }
-      `}</style>
+`;
+
+function Ludotheque({ user, onSignOut }) {
+  const [games, setGames] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterConsole, setFilterConsole] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [sortBy, setSortBy] = useState("title");
+  const [selected, setSelected] = useState(null); // game being viewed/edited
+  const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [pickedGame, setPickedGame] = useState(null); // "empty" | game | null
+  const [groupByConsole, setGroupByConsole] = useState(false);
+  const backupInputRef = useRef(null);
+  const saveTimer = useRef(null);
+
+  const syncedRef = useRef(new Map()); // id -> objet jeu tel qu'il est dans le cloud
+  const latestRef = useRef([]);
+  const pendingRef = useRef(false);
+  const syncingRef = useRef(false);
+  const dirtyRef = useRef(false);
+  const migratingRef = useRef(false);
+  const lastFetchRef = useRef(0);
+  const [syncError, setSyncError] = useState(false);
+
+  const MIGRATED_KEY = "ludotheque-migrated";
+
+  async function syncNow() {
+    if (syncingRef.current) {
+      dirtyRef.current = true;
+      return;
+    }
+    syncingRef.current = true;
+    try {
+      do {
+        dirtyRef.current = false;
+        await pushChanges(supabase, user.id, syncedRef.current, latestRef.current);
+      } while (dirtyRef.current);
+      pendingRef.current = false;
+      setSyncError(false);
+      setSaving(false);
+      if (migratingRef.current) {
+        migratingRef.current = false;
+        localStorage.setItem(MIGRATED_KEY, "1");
+      }
+    } catch (e) {
+      console.error("Erreur de synchro", e);
+      setSyncError(true);
+      setSaving(false);
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(syncNow, 8000); // nouvelle tentative
+    } finally {
+      syncingRef.current = false;
+    }
+  }
+
+  function persist(next) {
+    latestRef.current = next;
+    pendingRef.current = true;
+    setGames(next);
+    setSaving(true);
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(syncNow, 600);
+  }
+
+  // Chargement initial depuis le cloud (+ migration unique des données locales d'avant la synchro)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const cloud = await fetchAllGames(supabase);
+        if (cancelled) return;
+        lastFetchRef.current = Date.now();
+        syncedRef.current = new Map(cloud.map((g) => [g.id, g]));
+        latestRef.current = cloud;
+        setGames(cloud);
+        if (!localStorage.getItem(MIGRATED_KEY)) {
+          // Fusion unique des données locales d'avant la synchro : on n'ajoute que les jeux absents du cloud.
+          let local = [];
+          try {
+            const raw = localStorage.getItem("ludotheque-games");
+            local = raw ? JSON.parse(raw) : [];
+          } catch (err) {
+            local = [];
+          }
+          const cloudIds = new Set(cloud.map((g) => g.id));
+          const toMerge = (Array.isArray(local) ? local : [])
+            .map((g) => ({ ...g, id: g.id || uid() }))
+            .filter((g) => !cloudIds.has(g.id));
+          if (toMerge.length) {
+            migratingRef.current = true; // le drapeau n'est posé qu'une fois l'envoi réussi
+            persist([...cloud, ...toMerge]);
+          } else {
+            localStorage.setItem(MIGRATED_KEY, "1");
+          }
+        }
+      } catch (e) {
+        console.error("Erreur de chargement", e);
+        if (!cancelled) {
+          setSyncError(true);
+          setGames([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Récupère les modifs faites depuis un autre appareil quand on revient sur l'onglet
+  useEffect(() => {
+    async function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      if (pendingRef.current || syncingRef.current) return;
+      if (Date.now() - lastFetchRef.current < 30000) return;
+      try {
+        const cloud = await fetchAllGames(supabase);
+        if (pendingRef.current || syncingRef.current) return; // une modif locale est partie entre-temps
+        lastFetchRef.current = Date.now();
+        syncedRef.current = new Map(cloud.map((g) => [g.id, g]));
+        latestRef.current = cloud;
+        setGames(cloud);
+        setSyncError(false);
+      } catch (e) {
+        console.error("Erreur de rafraîchissement", e);
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
+  function upsertGame(game) {
+    const exists = games.some((g) => g.id === game.id);
+    const next = exists ? games.map((g) => (g.id === game.id ? game : g)) : [...games, game];
+    persist(next);
+  }
+
+  function deleteGame(id) {
+    persist(games.filter((g) => g.id !== id));
+    setSelected(null);
+  }
+
+  function importGames(newGames) {
+    const byTitle = new Map(games.map((g) => [g.title.trim().toLowerCase(), g]));
+    const merged = [...games];
+    let updated = 0;
+    let added = 0;
+    newGames.forEach((ng) => {
+      const key = ng.title.trim().toLowerCase();
+      const existing = byTitle.get(key);
+      if (existing) {
+        const idx = merged.findIndex((g) => g.id === existing.id);
+        // On ne remplace un champ existant que si le nouveau n'est pas vide, pour ne pas écraser des retouches manuelles
+        const patched = { ...existing };
+        Object.keys(ng).forEach((k) => {
+          if (k === "id") return;
+          const val = ng[k];
+          const isEmpty = val === "" || val === null || (Array.isArray(val) && val.length === 0);
+          if (!isEmpty) patched[k] = val;
+        });
+        merged[idx] = patched;
+        updated++;
+      } else {
+        merged.push({ ...emptyGame(), ...ng, id: ng.id });
+        added++;
+      }
+    });
+    persist(merged);
+    return { updated, added };
+  }
+
+  function pickRandom() {
+    const candidates = games.filter((g) => g.status === "backlog");
+    if (!candidates.length) {
+      setPickedGame("empty");
+      return;
+    }
+    const weights = candidates.map((g) => {
+      const m = Number(g.metacritic);
+      return m && !isNaN(m) ? m : 55;
+    });
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < candidates.length; i++) {
+      r -= weights[i];
+      if (r <= 0) {
+        setPickedGame(candidates[i]);
+        return;
+      }
+    }
+    setPickedGame(candidates[candidates.length - 1]);
+  }
+
+  function exportBackup() {
+    const blob = new Blob([JSON.stringify(games, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ludotheque-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function restoreBackup(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!Array.isArray(parsed)) throw new Error("format invalide");
+        if (window.confirm(`Ceci va remplacer toute ta ludothèque actuelle (${games.length} jeux) par le contenu de ce fichier (${parsed.length} jeux). Continuer ?`)) {
+          persist(parsed.map((g) => ({ ...g, id: g.id || uid() })));
+        }
+      } catch (err) {
+        alert("Ce fichier ne semble pas être un backup valide.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  const consoles = useMemo(() => {
+    if (!games) return [];
+    return Array.from(new Set(games.map((g) => g.console).filter(Boolean))).sort();
+  }, [games]);
+
+  const filtered = useMemo(() => {
+    if (!games) return [];
+    let list = games.filter((g) => {
+      const matchSearch = g.title.toLowerCase().includes(search.toLowerCase());
+      const matchConsole = !filterConsole || g.console === filterConsole;
+      const matchStatus = !filterStatus || g.status === filterStatus;
+      return matchSearch && matchConsole && matchStatus;
+    });
+    list.sort((a, b) => {
+      if (sortBy === "title") return a.title.localeCompare(b.title);
+      if (sortBy === "console") return (a.console || "").localeCompare(b.console || "");
+      if (sortBy === "status") return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
+      return 0;
+    });
+    return list;
+  }, [games, search, filterConsole, filterStatus, sortBy]);
+
+  const counts = useMemo(() => {
+    if (!games) return {};
+    const c = {};
+    STATUS_ORDER.forEach((s) => (c[s] = 0));
+    games.forEach((g) => (c[g.status] = (c[g.status] || 0) + 1));
+    return c;
+  }, [games]);
+
+  const totalValue = useMemo(() => {
+    if (!games) return 0;
+    return games.reduce((sum, g) => {
+      const n = parseFloat(String(g.price || "").replace(",", ".").replace(/[^\d.]/g, ""));
+      return isNaN(n) ? sum : sum + n;
+    }, 0);
+  }, [games]);
+
+  const groupedByConsole = useMemo(() => {
+    const map = new Map();
+    filtered.forEach((g) => {
+      const key = g.console || "Sans console";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(g);
+    });
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
+
+  function renderSpine(g) {
+    const style = getSpineStyle(g.console);
+    return (
+      <div
+        key={g.id}
+        className="lt-spine"
+        style={{ background: style.bg, width: style.width, height: style.height }}
+        onClick={() => setSelected(g)}
+        title={g.title}
+      >
+        <span className="lt-spine-title" style={{ color: style.text, maxHeight: style.height - 45 }}>
+          {g.title || "Sans titre"}
+        </span>
+        {style.label && (
+          <span className="lt-spine-label" style={{ color: style.text, opacity: 0.55 }}>
+            {style.label}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="lt-root">
+      <style>{GLOBAL_CSS}</style>
 
       <div className="lt-header">
         <div>
@@ -1154,7 +1285,14 @@ export default function Ludotheque() {
             </div>
           )}
         </div>
-        <div className="lt-save-indicator">{saving ? "Enregistrement…" : games ? "Enregistré" : ""}</div>
+        <div className="lt-header-right">
+          <div className="lt-save-indicator" style={syncError ? { color: "#E07A67" } : undefined}>
+            {syncError ? "Synchro en échec — nouvelle tentative…" : saving ? "Synchronisation…" : games ? "Synchronisé" : ""}
+          </div>
+          <button className="lt-icon-btn" onClick={onSignOut} title="Se déconnecter">
+            <LogOut size={15} />
+          </button>
+        </div>
       </div>
 
       {games && (
@@ -1979,4 +2117,104 @@ function ImportModal({ onClose, onImport }) {
       </div>
     </div>
   );
+}
+
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | sending | sent | error
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setStatus("sending");
+    setErrorMsg("");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.origin },
+    });
+    if (error) {
+      setStatus("error");
+      setErrorMsg(error.message);
+    } else {
+      setStatus("sent");
+    }
+  }
+
+  return (
+    <div className="lt-root">
+      <style>{GLOBAL_CSS}</style>
+      <div className="lt-login-wrap">
+        <form className="lt-login-card" onSubmit={submit}>
+          <h1>
+            <Gamepad2 size={24} color="#D4AF37" /> Ma ludothèque
+          </h1>
+          {status === "sent" ? (
+            <div className="lt-login-sent">
+              <Mail size={18} color="#D4AF37" style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                Lien envoyé à <b>{email}</b>. Ouvre ce mail (pense aux spams) et clique sur le lien : tu seras connectée.
+              </span>
+            </div>
+          ) : (
+            <>
+              <p>Connecte-toi par email pour retrouver ta collection sur tous tes appareils. Pas de mot de passe : je t'envoie un lien.</p>
+              <input
+                type="email"
+                required
+                autoFocus
+                placeholder="ton@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <button type="submit" className="lt-add-btn" disabled={status === "sending"}>
+                {status === "sending" ? "Envoi…" : "Recevoir le lien de connexion"}
+              </button>
+              {status === "error" && <div className="lt-login-error">{errorMsg}</div>}
+            </>
+          )}
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ConfigMissing() {
+  return (
+    <div className="lt-root">
+      <style>{GLOBAL_CSS}</style>
+      <div className="lt-login-wrap">
+        <div className="lt-login-card">
+          <h1>Configuration manquante</h1>
+          <p>
+            Les variables <code>VITE_SUPABASE_URL</code> et <code>VITE_SUPABASE_ANON_KEY</code> ne sont pas définies.
+            En local, mets-les dans un fichier <code>.env.local</code> ; sur Vercel, dans Settings → Environment Variables (puis redéploie).
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [session, setSession] = useState(undefined); // undefined = chargement, null = déconnecté
+
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => setSession(next ?? null));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  if (!supabaseConfigured) return <ConfigMissing />;
+  if (session === undefined) {
+    return (
+      <div className="lt-root">
+        <style>{GLOBAL_CSS}</style>
+        <div className="lt-login-wrap" style={{ color: "var(--text-muted)" }}>Chargement…</div>
+      </div>
+    );
+  }
+  if (!session) return <LoginScreen />;
+  return <Ludotheque key={session.user.id} user={session.user} onSignOut={() => supabase.auth.signOut()} />;
 }
