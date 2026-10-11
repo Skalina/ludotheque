@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail } from "lucide-react";
+import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail, MoreHorizontal, SlidersHorizontal, ChevronLeft } from "lucide-react";
 import Papa from "papaparse";
 import { supabase, supabaseConfigured } from "./supabaseClient.js";
 import { fetchAllGames, pushChanges } from "./cloud.js";
@@ -438,9 +438,11 @@ const GLOBAL_CSS = `
           border: 1px solid rgba(0,0,0,0.3);
           flex-shrink: 0;
         }
-        .lt-spine:hover {
-          transform: translateY(-8px);
-          box-shadow: inset -3px 0 6px rgba(0,0,0,0.35), 0 10px 16px rgba(0,0,0,0.5);
+        @media (hover: hover) {
+          .lt-spine:hover {
+            transform: translateY(-8px);
+            box-shadow: inset -3px 0 6px rgba(0,0,0,0.35), 0 10px 16px rgba(0,0,0,0.5);
+          }
         }
         .lt-spine-title {
           writing-mode: vertical-rl;
@@ -851,8 +853,10 @@ const GLOBAL_CSS = `
         .lt-lightbox img {
           width: 90vw;
           height: 90vh;
+          height: 90dvh;
           max-width: 900px;
           max-height: 90vh;
+          max-height: 90dvh;
           object-fit: contain;
           border-radius: 6px;
           box-shadow: var(--shadow-lg);
@@ -962,9 +966,141 @@ const GLOBAL_CSS = `
         .lt-mapping-row .lt-select { flex: 1; }
         .lt-import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
         .lt-import-success { display: flex; align-items: center; gap: 10px; font-size: 14px; padding: 8px 0 4px; }
-        @media (max-width: 560px) {
-          .lt-modal { flex-direction: column; max-height: 92vh; }
-          .lt-box-wrap { width: 100%; flex-direction: row; padding: 16px; }
+        /* ===================== UX refonte : layout, barre d'outils, fiche ===================== */
+        .lt-root { min-height: 100vh; min-height: 100dvh; -webkit-text-size-adjust: 100%; }
+        .lt-spine, .lt-root button { -webkit-tap-highlight-color: transparent; }
+        .lt-spine::after { content: ""; position: absolute; top: 0; bottom: 0; left: -4px; right: -4px; }
+        .lt-spine:active { transform: translateY(-4px); }
+
+        .lt-header { align-items: flex-start; flex-wrap: nowrap; margin-bottom: 18px; }
+        .lt-header-left { min-width: 0; flex: 1; }
+        .lt-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .lt-sync { display: flex; align-items: center; gap: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--text-muted); }
+        .lt-sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #6BC46D; display: inline-block; }
+        .lt-sync-dot.busy { background: var(--gold); animation: lt-pulse 1s ease-in-out infinite; }
+        .lt-sync-dot.err { background: #D9614F; }
+        .lt-sync.err { color: #E07A67; }
+        .lt-sync-text { display: none; }
+        .lt-sync.err .lt-sync-text { display: inline; }
+        @keyframes lt-pulse { 50% { opacity: 0.35; } }
+        .lt-icon-btn { min-width: 40px; min-height: 40px; justify-content: center; }
+
+        .lt-menu-wrap { position: relative; }
+        .lt-menu {
+          position: absolute; top: calc(100% + 8px); right: 0; min-width: 240px; z-index: 70;
+          background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
+          box-shadow: var(--shadow-lg); padding: 6px;
+        }
+        .lt-menu button {
+          display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px;
+          background: none; border: none; color: var(--text); font-size: 14px; padding: 10px 12px;
+          border-radius: 8px; cursor: pointer; text-align: left;
+        }
+        .lt-menu button:hover { background: rgba(255,255,255,0.06); }
+        .lt-menu button.danger { color: #E07A67; }
+        .lt-menu hr { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
+
+        .lt-toolbar { flex-wrap: wrap; gap: 10px; }
+        .lt-toolbar-main { display: flex; gap: 8px; flex: 1 1 240px; min-width: 0; }
+        .lt-toolbar-main .lt-search { flex: 1; min-width: 0; }
+        .lt-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+        .lt-toolbar-actions { display: flex; gap: 8px; margin-left: auto; }
+        .lt-btn {
+          display: flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+          background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 7px;
+          padding: 9px 14px; font-weight: 600; font-size: 13px; cursor: pointer;
+        }
+        .lt-btn:hover { border-color: var(--gold); color: var(--gold); }
+        .lt-filters-btn { display: none; }
+        .lt-filters-btn[aria-expanded="true"] { border-color: var(--gold); color: var(--gold); }
+        .lt-count { background: var(--gold); color: #16130A; border-radius: 10px; font-size: 11px; font-weight: 800; padding: 0 6px; margin-left: 2px; }
+        .lt-filters-reset { background: none; border: none; color: var(--text-muted); font-size: 12px; text-decoration: underline; cursor: pointer; padding: 8px 4px; }
+
+        /* ---- Fiche détail (feuille) ---- */
+        .lt-sheet-overlay {
+          position: fixed; inset: 0; z-index: 50; background: rgba(6,6,7,0.72);
+          display: flex; align-items: center; justify-content: center; padding: 24px;
+        }
+        .lt-sheet {
+          background: var(--surface); border: 1px solid var(--border); border-radius: 16px; width: 100%; max-width: 780px;
+          max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px);
+          display: flex; flex-direction: column; box-shadow: var(--shadow-lg); overflow: hidden;
+        }
+        .lt-sheet-header {
+          display: flex; align-items: center; gap: 12px; padding: 12px 16px; flex-shrink: 0;
+          border-bottom: 1px solid var(--border); background: var(--surface);
+        }
+        .lt-sheet-heading { flex: 1; min-width: 0; }
+        .lt-sheet-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); font-weight: 700; }
+        .lt-sheet-title { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .lt-sheet-autosave { display: flex; align-items: center; gap: 5px; flex-shrink: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--text-muted); }
+        .lt-sheet-autosave.warn { color: var(--gold); }
+        .lt-sheet-scroll { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 20px 22px 28px; flex: 1; }
+        .lt-sheet-hero { display: flex; gap: 20px; align-items: flex-start; }
+        .lt-sheet-hero-main { flex: 1; min-width: 0; }
+        .lt-sheet .lt-box-wrap { width: 150px; flex-shrink: 0; border-radius: 12px; }
+        .lt-section { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 16px; }
+        .lt-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--gold); font-weight: 800; margin: 0 0 12px; }
+        .lt-row { flex-wrap: wrap; }
+        .lt-row > .lt-field { flex: 1 1 150px; min-width: 0; }
+        .lt-danger-btn {
+          display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 26px; min-height: 44px;
+          background: transparent; border: 1px solid #5a2a24; color: #E07A67; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+        }
+        .lt-danger-btn:hover { background: rgba(217,97,79,0.1); }
+        .lt-only-mobile { display: none; }
+        .lt-only-desktop { display: inline-flex; }
+        @keyframes lt-sheet-in { from { transform: translateY(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .lt-sheet { animation: none !important; } }
+        @media (hover: hover) { .lt-spine:active { transform: none; } }
+
+        /* ---- Mobile ---- */
+        @media (max-width: 719px) {
+          .lt-root { padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 40px max(16px, env(safe-area-inset-left)); }
+          .lt-title { font-size: 24px; }
+          .lt-header { flex-wrap: wrap; row-gap: 8px; }
+          .lt-header-left { display: contents; }
+          .lt-title { flex: 1; min-width: 0; order: 1; }
+          .lt-header-right { order: 2; }
+          .lt-stats { order: 3; flex: 0 0 100%; margin-top: 0; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; scrollbar-width: none; -webkit-overflow-scrolling: touch; -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); mask-image: linear-gradient(to right, #000 88%, transparent); }
+          .lt-stats::-webkit-scrollbar { display: none; }
+          .lt-toolbar { flex-direction: column; align-items: stretch; background: none; border: none; box-shadow: none; padding: 0; margin-bottom: 18px; }
+          .lt-toolbar-main { flex: none; }
+          .lt-filters-btn { display: flex; min-height: 44px; }
+          .lt-filters { display: none; }
+          .lt-filters.open { display: grid; grid-template-columns: 1fr 1fr; }
+          .lt-filters .lt-select { width: 100%; min-height: 44px; }
+          .lt-filters .lt-btn, .lt-filters-reset { min-height: 44px; }
+          .lt-toolbar-actions { display: grid; grid-template-columns: 1fr 1fr; margin-left: 0; }
+          .lt-toolbar-actions > button { min-height: 46px; margin-left: 0; }
+          .lt-search { min-height: 44px; }
+          .lt-root .lt-search input, .lt-root .lt-select, .lt-root .lt-select-full { font-size: 16px; }
+          .lt-root .lt-field input[type="text"], .lt-root .lt-field input[type="number"], .lt-root .lt-field textarea, .lt-root .lt-field select { font-size: 16px; padding: 11px 12px; }
+          .lt-login-card input { font-size: 16px; }
+          .lt-status-btn { padding: 9px 13px; font-size: 13px; min-height: 40px; }
+          .lt-toggle { min-height: 44px; }
+          .lt-progress-row input[type="range"] { height: 32px; }
+          .lt-image-pos-badge { min-width: 28px; min-height: 28px; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+          .lt-image-remove { width: 28px; height: 28px; }
+          .lt-only-mobile { display: inline-flex; }
+          .lt-only-desktop { display: none; }
+          .lt-sheet-overlay { padding: 0; align-items: stretch; }
+          .lt-sheet { max-width: none; max-height: none; height: 100vh; height: 100dvh; border-radius: 0; border: none; animation: lt-sheet-in 0.2s ease-out; }
+          .lt-sheet-header { padding: calc(10px + env(safe-area-inset-top)) 12px 10px; }
+          .lt-sheet-scroll { padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); }
+          .lt-sheet-hero { flex-direction: column; gap: 14px; }
+          .lt-sheet-hero-main { width: 100%; }
+          .lt-sheet .lt-box-wrap { width: 100%; flex-direction: row; justify-content: flex-start; gap: 18px; padding: 14px 16px; }
+          .lt-sheet .lt-box-caption { align-items: flex-start; }
+          .lt-lightbox { padding: 12px; }
+          .lt-lightbox img { width: 100%; height: 100%; max-width: none; max-height: none; }
+          .lt-lightbox-close { top: calc(14px + env(safe-area-inset-top)); right: 14px; }
+          .lt-picker-modal { width: min(92vw, 320px); max-width: none; }
+          .lt-menu { min-width: 250px; }
+        }
+        @media (min-width: 720px) {
+          .lt-sync-text { display: inline; }
+          .lt-stats { margin-top: 8px; }
         }
 `;
 
@@ -980,6 +1116,7 @@ function Ludotheque({ user, onSignOut }) {
   const [importing, setImporting] = useState(false);
   const [pickedGame, setPickedGame] = useState(null); // "empty" | game | null
   const [groupByConsole, setGroupByConsole] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const backupInputRef = useRef(null);
   const saveTimer = useRef(null);
 
@@ -1138,6 +1275,17 @@ function Ludotheque({ user, onSignOut }) {
     return { updated, added };
   }
 
+  const activeFilters = (filterConsole ? 1 : 0) + (filterStatus ? 1 : 0) + (sortBy !== "title" ? 1 : 0) + (groupByConsole ? 1 : 0);
+
+  function resetFilters() {
+    setFilterConsole("");
+    setFilterStatus("");
+    setSortBy("title");
+    setGroupByConsole(false);
+  }
+
+  useScrollLock(!!(selected || creating || importing || pickedGame));
+
   function pickRandom() {
     const candidates = games.filter((g) => g.status === "backlog");
     if (!candidates.length) {
@@ -1264,14 +1412,14 @@ function Ludotheque({ user, onSignOut }) {
       <style>{GLOBAL_CSS}</style>
 
       <div className="lt-header">
-        <div>
+        <div className="lt-header-left">
           <h1 className="lt-title">
             <Gamepad2 size={26} color="#D4AF37" />
             Ma ludothèque
             {games && <span className="badge">{games.length}</span>}
           </h1>
           {games && (
-            <div className="lt-stats" style={{ marginTop: 8 }}>
+            <div className="lt-stats">
               {STATUS_ORDER.map((s) => (
                 <span key={s}>
                   {STATUS[s].label} <b>{counts[s] || 0}</b>
@@ -1286,65 +1434,80 @@ function Ludotheque({ user, onSignOut }) {
           )}
         </div>
         <div className="lt-header-right">
-          <div className="lt-save-indicator" style={syncError ? { color: "#E07A67" } : undefined}>
-            {syncError ? "Synchro en échec — nouvelle tentative…" : saving ? "Synchronisation…" : games ? "Synchronisé" : ""}
+          <div className={"lt-sync" + (syncError ? " err" : "")} title={syncError ? "Synchro en échec — nouvelle tentative…" : saving ? "Synchronisation…" : "Synchronisé"}>
+            <i className={"lt-sync-dot" + (syncError ? " err" : saving ? " busy" : "")} />
+            <span className="lt-sync-text">{syncError ? "Synchro en échec" : saving ? "Synchronisation…" : games ? "Synchronisé" : ""}</span>
           </div>
-          <button className="lt-icon-btn" onClick={onSignOut} title="Se déconnecter">
-            <LogOut size={15} />
-          </button>
+          <MoreMenu
+            items={[
+              { label: "Importer un CSV", icon: <Upload size={16} />, onClick: () => setImporting(true) },
+              { label: "Exporter une sauvegarde", icon: <Download size={16} />, onClick: exportBackup },
+              { label: "Restaurer une sauvegarde", icon: <Upload size={16} />, onClick: () => backupInputRef.current && backupInputRef.current.click() },
+              { divider: true },
+              { label: "Se déconnecter", icon: <LogOut size={16} />, onClick: onSignOut, danger: true },
+            ]}
+          />
         </div>
       </div>
+      <input type="file" accept=".json" ref={backupInputRef} style={{ display: "none" }} onChange={restoreBackup} />
 
       {games && (
         <div className="lt-toolbar">
-          <div className="lt-search">
-            <Search size={15} color="#9C927D" />
-            <input
-              placeholder="Rechercher un jeu…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="lt-toolbar-main">
+            <div className="lt-search">
+              <Search size={15} color="#9C927D" />
+              <input
+                placeholder="Rechercher un jeu…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <button
+              className={"lt-btn lt-filters-btn" + (activeFilters ? " lt-toggle-active" : "")}
+              onClick={() => setFiltersOpen((v) => !v)}
+              aria-expanded={filtersOpen}
+            >
+              <SlidersHorizontal size={16} /> Filtres
+              {activeFilters > 0 && <span className="lt-count">{activeFilters}</span>}
+            </button>
           </div>
-          <select className="lt-select" value={filterConsole} onChange={(e) => setFilterConsole(e.target.value)}>
-            <option value="">Toutes consoles</option>
-            {consoles.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          <select className="lt-select" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            <option value="">Tous statuts</option>
-            {STATUS_ORDER.map((s) => (
-              <option key={s} value={s}>{STATUS[s].label}</option>
-            ))}
-          </select>
-          <select className="lt-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-            <option value="title">Trier : titre</option>
-            <option value="console">Trier : console</option>
-            <option value="status">Trier : statut</option>
-          </select>
-          <button
-            className={"lt-import-btn" + (groupByConsole ? " lt-toggle-active" : "")}
-            onClick={() => setGroupByConsole((v) => !v)}
-            title="Grouper l'étagère par console"
-          >
-            <Layers size={15} /> Grouper
-          </button>
-          <button className="lt-import-btn" onClick={() => setImporting(true)}>
-            <Upload size={15} /> Importer CSV
-          </button>
-          <button className="lt-import-btn" onClick={pickRandom}>
-            <Dices size={15} /> Pioche aléatoire
-          </button>
-          <button className="lt-add-btn" onClick={() => setCreating(true)}>
-            <Plus size={15} /> Ajouter un jeu
-          </button>
-          <button className="lt-icon-btn" onClick={exportBackup} title="Exporter un backup">
-            <Download size={15} />
-          </button>
-          <button className="lt-icon-btn" onClick={() => backupInputRef.current.click()} title="Restaurer un backup">
-            <Upload size={15} />
-          </button>
-          <input type="file" accept=".json" ref={backupInputRef} style={{ display: "none" }} onChange={restoreBackup} />
+          <div className={"lt-filters" + (filtersOpen ? " open" : "")}>
+            <select className="lt-select" value={filterConsole} onChange={(e) => setFilterConsole(e.target.value)} aria-label="Console">
+              <option value="">Toutes consoles</option>
+              {consoles.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <select className="lt-select" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} aria-label="Statut">
+              <option value="">Tous statuts</option>
+              {STATUS_ORDER.map((s) => (
+                <option key={s} value={s}>{STATUS[s].label}</option>
+              ))}
+            </select>
+            <select className="lt-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Tri">
+              <option value="title">Trier : titre</option>
+              <option value="console">Trier : console</option>
+              <option value="status">Trier : statut</option>
+            </select>
+            <button
+              className={"lt-btn" + (groupByConsole ? " lt-toggle-active" : "")}
+              onClick={() => setGroupByConsole((v) => !v)}
+              aria-pressed={groupByConsole}
+            >
+              <Layers size={15} /> Grouper par console
+            </button>
+            {activeFilters > 0 && (
+              <button className="lt-filters-reset" onClick={resetFilters}>Réinitialiser</button>
+            )}
+          </div>
+          <div className="lt-toolbar-actions">
+            <button className="lt-btn" onClick={pickRandom}>
+              <Dices size={16} /> Piocher
+            </button>
+            <button className="lt-add-btn" onClick={() => setCreating(true)}>
+              <Plus size={16} /> Ajouter
+            </button>
+          </div>
         </div>
       )}
 
@@ -1391,7 +1554,10 @@ function Ludotheque({ user, onSignOut }) {
           onSave={(g) => {
             upsertGame(g);
           }}
-          onDelete={(id) => deleteGame(id)}
+          onDelete={(id) => {
+            deleteGame(id);
+            setCreating(false);
+          }}
         />
       )}
 
@@ -1438,13 +1604,90 @@ function Ludotheque({ user, onSignOut }) {
   );
 }
 
-function GameBox({ game }) {
+function useIsMobile() {
+  const query = "(max-width: 719px)";
+  const [mobile, setMobile] = useState(() => (typeof window !== "undefined" && window.matchMedia ? window.matchMedia(query).matches : false));
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia(query);
+    const onChange = () => setMobile(mq.matches);
+    onChange();
+    mq.addEventListener ? mq.addEventListener("change", onChange) : mq.addListener(onChange);
+    return () => (mq.removeEventListener ? mq.removeEventListener("change", onChange) : mq.removeListener(onChange));
+  }, []);
+  return mobile;
+}
+
+// Bloque le défilement de la page derrière une feuille/modale ouverte
+function useScrollLock(active) {
+  useEffect(() => {
+    if (!active) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [active]);
+}
+
+function MoreMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div className="lt-menu-wrap" ref={ref}>
+      <button className="lt-icon-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label="Plus d'actions">
+        <MoreHorizontal size={18} />
+      </button>
+      {open && (
+        <div className="lt-menu" role="menu">
+          {items.map((it, i) =>
+            it.divider ? (
+              <hr key={i} />
+            ) : (
+              <button
+                key={i}
+                role="menuitem"
+                className={it.danger ? "danger" : ""}
+                onClick={() => {
+                  setOpen(false);
+                  it.onClick();
+                }}
+              >
+                {it.icon}
+                {it.label}
+              </button>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GameBox({ game, scale = 1 }) {
   const style = getSpineStyle(game.console);
   const img = game.images && game.images[0];
   return (
     <div className="lt-box-wrap">
-      <div className="lt-box" style={{ width: style.boxW + style.boxSpine, height: style.boxH }}>
-        <div className="lt-box-spine" style={{ background: style.bg, width: style.boxSpine }}>
+      <div className="lt-box" style={{ width: Math.round((style.boxW + style.boxSpine) * scale), height: Math.round(style.boxH * scale) }}>
+        <div className="lt-box-spine" style={{ background: style.bg, width: Math.round(style.boxSpine * scale) }}>
           {style.label && (
             <span className="lt-box-spine-label" style={{ color: style.text }}>
               {style.label}
@@ -1500,6 +1743,19 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
   const uploadTargetRef = useRef(0);
   const synopsisRef = useRef(null);
   const [lightboxSrc, setLightboxSrc] = useState(null);
+  const isMobile = useIsMobile();
+  const [saved, setSaved] = useState(!isNew); // le jeu existe déjà dans la collection
+
+  // Échap : ferme d'abord l'image agrandie, puis la fiche
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (lightboxSrc) setLightboxSrc(null);
+      else onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [lightboxSrc, onClose]);
 
   function autoGrow(el) {
     if (!el) return;
@@ -1514,7 +1770,10 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
   function update(field, value) {
     const next = { ...form, [field]: value };
     setForm(next);
-    if (next.title.trim()) onSave(next);
+    if (next.title.trim()) {
+      onSave(next);
+      setSaved(true);
+    }
   }
 
   function toggleMode(mode) {
@@ -1573,373 +1832,392 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
     update("collectorImage", { ...form.collectorImage, position: order[(i + 1) % order.length] });
   }
 
+  const consoleOk = !!form.console;
+  const posOf = (img) => (img.position === "top" ? "center top" : img.position === "bottom" ? "center bottom" : "center center");
+  const posLabel = (img) => (img.position === "top" ? "H" : img.position === "bottom" ? "B" : "C");
+
+  function handleDelete() {
+    if (window.confirm(`Supprimer « ${form.title || "ce jeu"} » de ta ludothèque ?`)) onDelete(form.id);
+  }
+
   return (
-    <div className="lt-overlay" onClick={onClose}>
-      <div className="lt-modal" onClick={(e) => e.stopPropagation()}>
-        <GameBox game={form} />
-        <div className="lt-modal-body">
-          <div className="lt-modal-body-header">
-            <div className="lt-field" style={{ flex: 1, marginBottom: 0 }}>
-              <label>Titre</label>
-              <input
-                type="text"
-                autoFocus
-                placeholder="Titre du jeu"
-                value={form.title}
-                onChange={(e) => update("title", e.target.value)}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {!isNew && (
-                <button className="lt-delete-btn" onClick={() => onDelete(form.id)} title="Supprimer">
-                  <Trash2 size={15} />
-                </button>
-              )}
-              <button className="lt-close-btn" onClick={onClose} title="Fermer">
-                <X size={15} />
-              </button>
+    <div className="lt-sheet-overlay" onClick={onClose}>
+      <div className="lt-sheet" role="dialog" aria-modal="true" aria-label={form.title || "Fiche du jeu"} onClick={(e) => e.stopPropagation()}>
+        <div className="lt-sheet-header">
+          <button className="lt-icon-btn" onClick={onClose} aria-label="Fermer la fiche">
+            <ChevronLeft size={20} className="lt-only-mobile" />
+            <X size={18} className="lt-only-desktop" />
+          </button>
+          <div className="lt-sheet-heading">
+            <div className="lt-sheet-kicker">{!saved ? "Nouveau jeu" : consoleOk ? form.console : "Jeu"}</div>
+            <div className="lt-sheet-title">{form.title || "Sans titre"}</div>
+          </div>
+          <div className={"lt-sheet-autosave" + (form.title.trim() ? "" : " warn")}>
+            {form.title.trim() ? (
+              <>
+                <Check size={12} /> Enregistré
+              </>
+            ) : (
+              "Titre requis"
+            )}
+          </div>
+        </div>
+
+        <div className="lt-sheet-scroll">
+          <div className="lt-sheet-hero">
+            <GameBox game={form} scale={isMobile ? 0.8 : 1} />
+            <div className="lt-sheet-hero-main">
+              <div className="lt-field">
+                <label>Titre</label>
+                <input
+                  type="text"
+                  autoFocus={isNew}
+                  placeholder="Titre du jeu"
+                  value={form.title}
+                  onChange={(e) => update("title", e.target.value)}
+                />
+              </div>
+
+              <div className="lt-field">
+                <label>Synopsis</label>
+                <textarea
+                  ref={synopsisRef}
+                  className="lt-textarea-auto"
+                  placeholder="De quoi ça parle…"
+                  value={form.synopsis}
+                  onChange={(e) => {
+                    update("synopsis", e.target.value);
+                    autoGrow(e.target);
+                  }}
+                />
+              </div>
+
+              <div className="lt-field">
+                <label>Statut</label>
+                <div className="lt-status-btns">
+                  {STATUS_ORDER.map((s) => (
+                    <button
+                      key={s}
+                      className={"lt-status-btn" + (form.status === s ? " active" : "")}
+                      style={form.status === s ? { background: STATUS[s].color } : {}}
+                      onClick={() => update("status", s)}
+                    >
+                      {STATUS[s].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="lt-row">
+                <div className="lt-field" style={{ flex: "2 1 200px" }}>
+                  <label>Progression</label>
+                  <div className="lt-progress-row">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={form.progression}
+                      onChange={(e) => update("progression", Number(e.target.value))}
+                    />
+                    <span className="lt-progress-val">{form.progression}%</span>
+                  </div>
+                </div>
+                {isPlayStationConsole(form.console) && (
+                  <div className="lt-field" style={{ flex: "0 1 130px" }}>
+                    <label>Platine</label>
+                    <button
+                      className={"lt-toggle" + (form.platinum ? " active" : "")}
+                      onClick={() => update("platinum", !form.platinum)}
+                    >
+                      <Trophy size={13} />
+                      <span className="lt-toggle-track"><span className="lt-toggle-thumb" /></span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="lt-field">
-            <label>Synopsis</label>
-            <textarea
-              ref={synopsisRef}
-              className="lt-textarea-auto"
-              placeholder="De quoi ça parle…"
-              value={form.synopsis}
-              onChange={(e) => {
-                update("synopsis", e.target.value);
-                autoGrow(e.target);
-              }}
-            />
-          </div>
+          <div className="lt-section">
+            <h3 className="lt-section-title">Infos</h3>
+            <div className="lt-row">
+              <div className="lt-field">
+                <label>Console</label>
+                <select
+                  className="lt-select-full"
+                  value={customConsole ? "__custom__" : form.console}
+                  onChange={(e) => {
+                    if (e.target.value === "__custom__") {
+                      setCustomConsole(true);
+                    } else {
+                      setCustomConsole(false);
+                      update("console", e.target.value);
+                    }
+                  }}
+                >
+                  <option value="">—</option>
+                  {consoleOptions.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                  <option value="__custom__">Autre…</option>
+                </select>
+                {customConsole && (
+                  <input
+                    type="text"
+                    style={{ marginTop: 6 }}
+                    placeholder="Précise la console"
+                    value={consoleOptions.includes(form.console) ? "" : form.console}
+                    onChange={(e) => update("console", e.target.value)}
+                  />
+                )}
+              </div>
+              <div className="lt-field">
+                <label>Année de sortie</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="2023"
+                  value={form.year}
+                  onChange={(e) => update("year", e.target.value)}
+                />
+              </div>
+            </div>
 
-          <div className="lt-row">
             <div className="lt-field">
-              <label>Console</label>
+              <label>Genre</label>
               <select
                 className="lt-select-full"
-                value={customConsole ? "__custom__" : form.console}
+                value={customGenre ? "__custom__" : form.genre}
                 onChange={(e) => {
                   if (e.target.value === "__custom__") {
-                    setCustomConsole(true);
+                    setCustomGenre(true);
                   } else {
-                    setCustomConsole(false);
-                    update("console", e.target.value);
+                    setCustomGenre(false);
+                    update("genre", e.target.value);
                   }
                 }}
               >
                 <option value="">—</option>
-                {consoleOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                {GENRES.map((g) => (
+                  <option key={g} value={g}>{g}</option>
                 ))}
                 <option value="__custom__">Autre…</option>
               </select>
-              {customConsole && (
+              {customGenre && (
                 <input
                   type="text"
                   style={{ marginTop: 6 }}
-                  placeholder="Précise la console"
-                  value={consoleOptions.includes(form.console) ? "" : form.console}
-                  onChange={(e) => update("console", e.target.value)}
+                  placeholder="Précise le genre"
+                  value={GENRES.includes(form.genre) ? "" : form.genre}
+                  onChange={(e) => update("genre", e.target.value)}
                 />
               )}
             </div>
-            <div className="lt-field">
-              <label>Année de sortie</label>
-              <input
-                type="text"
-                placeholder="2023"
-                value={form.year}
-                onChange={(e) => update("year", e.target.value)}
-              />
-            </div>
-          </div>
 
-          <div className="lt-field">
-            <label>Genre</label>
-            <select
-              className="lt-select-full"
-              value={customGenre ? "__custom__" : form.genre}
-              onChange={(e) => {
-                if (e.target.value === "__custom__") {
-                  setCustomGenre(true);
-                } else {
-                  setCustomGenre(false);
-                  update("genre", e.target.value);
-                }
-              }}
-            >
-              <option value="">—</option>
-              {GENRES.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-              <option value="__custom__">Autre…</option>
-            </select>
-            {customGenre && (
-              <input
-                type="text"
-                style={{ marginTop: 6 }}
-                placeholder="Précise le genre"
-                value={GENRES.includes(form.genre) ? "" : form.genre}
-                onChange={(e) => update("genre", e.target.value)}
-              />
-            )}
-          </div>
-
-          <div className="lt-row">
-            <div className="lt-field">
-              <label>Mode de jeu</label>
-              <div className="lt-status-btns">
-                {MODES.map((m) => (
-                  <button
-                    key={m}
-                    className={"lt-status-btn" + (form.modes.includes(m) ? " active" : "")}
-                    style={form.modes.includes(m) ? { background: "#8A9BB8" } : {}}
-                    onClick={() => toggleMode(m)}
-                  >
-                    {m}
-                  </button>
-                ))}
+            <div className="lt-row">
+              <div className="lt-field">
+                <label>Mode de jeu</label>
+                <div className="lt-status-btns">
+                  {MODES.map((m) => (
+                    <button
+                      key={m}
+                      className={"lt-status-btn" + (form.modes.includes(m) ? " active" : "")}
+                      style={form.modes.includes(m) ? { background: "#8A9BB8" } : {}}
+                      onClick={() => toggleMode(m)}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="lt-field">
+                <label>PEGI</label>
+                <select className="lt-select-full" value={form.pegi} onChange={(e) => update("pegi", e.target.value)}>
+                  <option value="">—</option>
+                  {PEGI_OPTIONS.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
               </div>
             </div>
-            <div className="lt-field">
-              <label>PEGI</label>
-              <select
-                className="lt-select-full"
-                value={form.pegi}
-                onChange={(e) => update("pegi", e.target.value)}
-              >
-                <option value="">—</option>
-                {PEGI_OPTIONS.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-          </div>
 
-          <div className="lt-row">
-            <div className="lt-field">
-              <label>Metacritic</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                placeholder="—"
-                value={form.metacritic}
-                onChange={(e) => update("metacritic", e.target.value)}
-              />
-            </div>
-            <div className="lt-field">
-              <label>Prix actuel</label>
-              <input
-                type="text"
-                placeholder="35€"
-                value={form.price}
-                onChange={(e) => update("price", e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="lt-field">
-            <label>Statut</label>
-            <div className="lt-status-btns">
-              {STATUS_ORDER.map((s) => (
-                <button
-                  key={s}
-                  className={"lt-status-btn" + (form.status === s ? " active" : "")}
-                  style={form.status === s ? { background: STATUS[s].color } : {}}
-                  onClick={() => update("status", s)}
-                >
-                  {STATUS[s].label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="lt-row">
-            <div className="lt-field" style={{ flex: 2 }}>
-              <label>Progression</label>
-              <div className="lt-progress-row">
+            <div className="lt-row">
+              <div className="lt-field">
+                <label>Metacritic</label>
                 <input
-                  type="range"
+                  type="number"
+                  inputMode="numeric"
                   min="0"
                   max="100"
-                  value={form.progression}
-                  onChange={(e) => update("progression", Number(e.target.value))}
+                  placeholder="—"
+                  value={form.metacritic}
+                  onChange={(e) => update("metacritic", e.target.value)}
                 />
-                <span className="lt-progress-val">{form.progression}%</span>
               </div>
-            </div>
-            {isPlayStationConsole(form.console) && (
               <div className="lt-field">
-                <label>Platine</label>
-                <button
-                  className={"lt-toggle" + (form.platinum ? " active" : "")}
-                  onClick={() => update("platinum", !form.platinum)}
-                >
-                  <Trophy size={13} />
-                  <span className="lt-toggle-track"><span className="lt-toggle-thumb" /></span>
-                </button>
+                <label>Prix actuel</label>
+                <input type="text" placeholder="35€" value={form.price} onChange={(e) => update("price", e.target.value)} />
               </div>
-            )}
-          </div>
-
-          <div className="lt-field">
-            <label>Jaquette</label>
-            <div className="lt-images-row">
-              {form.images[0] ? (
-                <div className="lt-image-slot lt-image-slot-filled lt-image-slot-cover">
-                  <img
-                    src={form.images[0].src}
-                    alt=""
-                    style={{
-                      objectPosition: form.images[0].position === "top" ? "center top" : form.images[0].position === "bottom" ? "center bottom" : "center center",
-                    }}
-                    onClick={() => setLightboxSrc(form.images[0].src)}
-                    title="Cliquer pour agrandir"
-                  />
-                  <button
-                    className="lt-image-pos-badge"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      cycleImagePosition(0);
-                    }}
-                    title="Ajuster le cadrage (haut / centre / bas)"
-                  >
-                    {form.images[0].position === "top" ? "H" : form.images[0].position === "bottom" ? "B" : "C"}
-                  </button>
-                  <button className="lt-image-remove" onClick={() => removeImage(0)} title="Retirer">
-                    <X size={12} />
-                  </button>
-                </div>
-              ) : (
-                <button className="lt-image-slot lt-image-slot-cover lt-image-slot-add" onClick={() => triggerUpload(0)}>
-                  <ImageIcon size={16} color="#D4AF37" />
-                </button>
-              )}
             </div>
           </div>
 
-          <div className="lt-field">
-            <label>Captures d'écran</label>
-            <div className="lt-shots-row">
-              {[1, 2].map((idx) =>
-                form.images[idx] ? (
-                  <div key={idx} className="lt-shot-slot lt-shot-slot-filled">
+          <div className="lt-section">
+            <h3 className="lt-section-title">Images</h3>
+            <div className="lt-field">
+              <label>Jaquette</label>
+              <div className="lt-images-row">
+                {form.images[0] ? (
+                  <div className="lt-image-slot lt-image-slot-filled lt-image-slot-cover">
                     <img
-                      src={form.images[idx].src}
-                      alt=""
-                      style={{
-                        objectPosition:
-                          form.images[idx].position === "top" ? "center top" : form.images[idx].position === "bottom" ? "center bottom" : "center center",
-                      }}
-                      onClick={() => setLightboxSrc(form.images[idx].src)}
+                      src={form.images[0].src}
+                      alt="Jaquette"
+                      style={{ objectPosition: posOf(form.images[0]) }}
+                      onClick={() => setLightboxSrc(form.images[0].src)}
                       title="Cliquer pour agrandir"
                     />
                     <button
                       className="lt-image-pos-badge"
                       onClick={(e) => {
                         e.stopPropagation();
-                        cycleImagePosition(idx);
+                        cycleImagePosition(0);
                       }}
                       title="Ajuster le cadrage (haut / centre / bas)"
                     >
-                      {form.images[idx].position === "top" ? "H" : form.images[idx].position === "bottom" ? "B" : "C"}
+                      {posLabel(form.images[0])}
                     </button>
-                    <button className="lt-image-remove" onClick={() => removeImage(idx)} title="Retirer">
+                    <button className="lt-image-remove" onClick={() => removeImage(0)} title="Retirer" aria-label="Retirer la jaquette">
                       <X size={12} />
                     </button>
                   </div>
                 ) : (
-                  <button key={idx} className="lt-shot-slot lt-shot-slot-add" onClick={() => triggerUpload(idx)}>
-                    <ImageIcon size={18} color="#D4AF37" />
-                    <span>Capture {idx}</span>
+                  <button className="lt-image-slot lt-image-slot-cover lt-image-slot-add" onClick={() => triggerUpload(0)} aria-label="Ajouter une jaquette">
+                    <ImageIcon size={16} color="#D4AF37" />
                   </button>
-                )
-              )}
+                )}
+              </div>
             </div>
-            <div className="lt-image-hint">Clique sur une image pour l'agrandir, sur le badge H/C/B pour ajuster le cadrage</div>
-            <input
-              type="file"
-              accept="image/*"
-              ref={coverInputRef}
-              style={{ display: "none" }}
-              onChange={handleCoverUpload}
-            />
-          </div>
 
-          <div className="lt-field">
-            <label>
-              <button
-                className={"lt-toggle lt-toggle-inline" + (form.collector ? " active" : "")}
-                onClick={() => update("collector", !form.collector)}
-              >
-                <Star size={13} />
-                <span className="lt-toggle-track"><span className="lt-toggle-thumb" /></span>
-              </button>
-              {" "}Édition collector
-            </label>
-            {form.collector && (
-              <div className="lt-collector-block">
-                <textarea
-                  className="lt-textarea-auto"
-                  placeholder="Contenu du collector : steelbook, artbook, figurine…"
-                  value={form.collectorNote}
-                  onChange={(e) => {
-                    update("collectorNote", e.target.value);
-                    autoGrow(e.target);
-                  }}
-                />
-                <div className="lt-shots-row" style={{ marginTop: 8 }}>
-                  {form.collectorImage ? (
-                    <div className="lt-shot-slot lt-shot-slot-filled">
+            <div className="lt-field">
+              <label>Captures d'écran</label>
+              <div className="lt-shots-row">
+                {[1, 2].map((idx) =>
+                  form.images[idx] ? (
+                    <div key={idx} className="lt-shot-slot lt-shot-slot-filled">
                       <img
-                        src={form.collectorImage.src}
-                        alt=""
-                        style={{
-                          objectPosition:
-                            form.collectorImage.position === "top" ? "center top" : form.collectorImage.position === "bottom" ? "center bottom" : "center center",
-                        }}
-                        onClick={() => setLightboxSrc(form.collectorImage.src)}
+                        src={form.images[idx].src}
+                        alt={`Capture ${idx}`}
+                        style={{ objectPosition: posOf(form.images[idx]) }}
+                        onClick={() => setLightboxSrc(form.images[idx].src)}
                         title="Cliquer pour agrandir"
                       />
                       <button
                         className="lt-image-pos-badge"
                         onClick={(e) => {
                           e.stopPropagation();
-                          cycleCollectorImagePosition();
+                          cycleImagePosition(idx);
                         }}
                         title="Ajuster le cadrage (haut / centre / bas)"
                       >
-                        {form.collectorImage.position === "top" ? "H" : form.collectorImage.position === "bottom" ? "B" : "C"}
+                        {posLabel(form.images[idx])}
                       </button>
-                      <button className="lt-image-remove" onClick={removeCollectorImage} title="Retirer">
+                      <button className="lt-image-remove" onClick={() => removeImage(idx)} title="Retirer" aria-label={`Retirer la capture ${idx}`}>
                         <X size={12} />
                       </button>
                     </div>
                   ) : (
-                    <button className="lt-shot-slot lt-shot-slot-add" onClick={() => triggerUpload("collector")}>
+                    <button key={idx} className="lt-shot-slot lt-shot-slot-add" onClick={() => triggerUpload(idx)}>
                       <ImageIcon size={18} color="#D4AF37" />
-                      <span>Photo du contenu</span>
+                      <span>Capture {idx}</span>
                     </button>
-                  )}
-                </div>
+                  )
+                )}
               </div>
-            )}
+              {form.images.some(Boolean) && (
+                <div className="lt-image-hint">Touche une image pour l'agrandir, le badge H/C/B pour recadrer.</div>
+              )}
+            </div>
           </div>
 
-          <div className="lt-field">
-            <label>Notes</label>
-            <textarea
-              placeholder="Impressions, où j'en suis, à ne pas oublier…"
-              value={form.notes}
-              onChange={(e) => update("notes", e.target.value)}
-            />
+          <div className="lt-section">
+            <h3 className="lt-section-title">Édition collector</h3>
+            <div className="lt-field">
+              <button
+                className={"lt-toggle" + (form.collector ? " active" : "")}
+                onClick={() => update("collector", !form.collector)}
+                aria-pressed={form.collector}
+              >
+                <Star size={13} />
+                <span style={{ flex: 1, textAlign: "left" }}>C'est une édition collector</span>
+                <span className="lt-toggle-track"><span className="lt-toggle-thumb" /></span>
+              </button>
+              {form.collector && (
+                <div className="lt-collector-block">
+                  <textarea
+                    className="lt-textarea-auto"
+                    placeholder="Contenu du collector : steelbook, artbook, figurine…"
+                    value={form.collectorNote}
+                    onChange={(e) => {
+                      update("collectorNote", e.target.value);
+                      autoGrow(e.target);
+                    }}
+                  />
+                  <div className="lt-shots-row" style={{ marginTop: 8 }}>
+                    {form.collectorImage ? (
+                      <div className="lt-shot-slot lt-shot-slot-filled">
+                        <img
+                          src={form.collectorImage.src}
+                          alt="Contenu du collector"
+                          style={{ objectPosition: posOf(form.collectorImage) }}
+                          onClick={() => setLightboxSrc(form.collectorImage.src)}
+                          title="Cliquer pour agrandir"
+                        />
+                        <button
+                          className="lt-image-pos-badge"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            cycleCollectorImagePosition();
+                          }}
+                          title="Ajuster le cadrage (haut / centre / bas)"
+                        >
+                          {posLabel(form.collectorImage)}
+                        </button>
+                        <button className="lt-image-remove" onClick={removeCollectorImage} title="Retirer" aria-label="Retirer la photo du collector">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button className="lt-shot-slot lt-shot-slot-add" onClick={() => triggerUpload("collector")}>
+                        <ImageIcon size={18} color="#D4AF37" />
+                        <span>Photo du contenu</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+
+          <div className="lt-section">
+            <h3 className="lt-section-title">Notes</h3>
+            <div className="lt-field" style={{ marginBottom: 0 }}>
+              <textarea
+                placeholder="Impressions, où j'en suis, à ne pas oublier…"
+                value={form.notes}
+                onChange={(e) => update("notes", e.target.value)}
+              />
+            </div>
+          </div>
+
+          {saved && (
+            <button className="lt-danger-btn" onClick={handleDelete}>
+              <Trash2 size={15} /> Supprimer ce jeu
+            </button>
+          )}
+
+          <input type="file" accept="image/*" ref={coverInputRef} style={{ display: "none" }} onChange={handleCoverUpload} />
         </div>
       </div>
+
       {lightboxSrc && (
         <div
           className="lt-lightbox"
@@ -1948,7 +2226,7 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
             setLightboxSrc(null);
           }}
         >
-          <button className="lt-lightbox-close" onClick={() => setLightboxSrc(null)} title="Fermer">
+          <button className="lt-lightbox-close" onClick={() => setLightboxSrc(null)} title="Fermer" aria-label="Fermer l'image">
             <X size={20} />
           </button>
           <img src={lightboxSrc} alt="" onClick={(e) => e.stopPropagation()} />
