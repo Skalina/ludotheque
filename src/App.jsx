@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail, MoreHorizontal, SlidersHorizontal, ChevronLeft } from "lucide-react";
+import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail, MoreHorizontal, SlidersHorizontal, ChevronLeft, Library, LayoutGrid, ChevronDown, ChevronsUpDown, ChevronsDownUp, Tags } from "lucide-react";
 import Papa from "papaparse";
 import { supabase, supabaseConfigured } from "./supabaseClient.js";
 import { fetchAllGames, pushChanges } from "./cloud.js";
 
 const STATUS = {
-  wishlist: { label: "Envie", color: "#8B7BB0" },
   backlog: { label: "À faire", color: "#7A7264" },
   playing: { label: "En cours", color: "#D4AF37" },
   done: { label: "Terminé", color: "#7FA06A" },
   dropped: { label: "Abandonné", color: "#A65B4C" },
 };
-const STATUS_ORDER = ["wishlist", "backlog", "playing", "done", "dropped"];
+const STATUS_ORDER = ["backlog", "playing", "done", "dropped"];
 
 const CONSOLE_PRESETS = [
   "PS5", "PS4", "PS3", "PS2", "PS1", "PSP", "Nintendo Switch", "Nintendo Switch 2", "Wii", "Wii U",
@@ -21,13 +20,9 @@ const CONSOLE_PRESETS = [
 const SPINE_PALETTE = ["#B33A3A", "#3A5FB3", "#3AA65C", "#B38A3A", "#7B5FB3", "#3AA6A0", "#B3563A", "#5F8AB3", "#A6763A", "#3AB38F"];
 
 const GENRES = [
-  "Action", "Aventure", "RPG", "Action-RPG", "Tactical-RPG", "Plateforme",
-  "FPS", "TPS", "Beat'em up", "Hack and slash", "Metroidvania", "Souls-like",
-  "Survival horror", "Horreur", "Stratégie", "STR (temps réel)", "Tour par tour",
-  "Gestion / Simulation", "City builder", "Simulation de vie", "Sport", "Course",
-  "Combat", "Puzzle / Réflexion", "Rythme", "Party game", "Visual novel",
-  "Roguelike / Roguelite", "Sandbox", "MMO", "Battle royale", "Idle",
-];
+  "Action", "Action-Aventure", "Action-RPG", "Aventure", "Combat", "Course", "Horreur",
+  "Plateforme", "Puzzle", "Roguelike", "RPG", "Simulation", "Sport", "Stratégie", "Tir (FPS / TPS)",
+].sort((a, b) => a.localeCompare(b, "fr"));
 
 const MODES = ["Solo", "Multijoueur", "Coop"];
 const PEGI_OPTIONS = ["PEGI 3", "PEGI 7", "PEGI 12", "PEGI 16", "PEGI 18"];
@@ -87,6 +82,158 @@ function getSpineStyle(name) {
   return { bg: consoleColor(name), text: "#FFFFFF", label: "", width: 25, height: 289, boxW: 101, boxH: 128, boxSpine: 9 };
 }
 
+// Constructeurs, dans l'ordre d'affichage de la page d'accueil.
+const MAKERS = ["Sony", "Nintendo", "Microsoft", "Sega", "PC", "Autres"];
+
+// Consoles par constructeur ; l'affichage va de la plus récente à la plus ancienne (année de 1re sortie).
+// `re` reconnaît les écritures courantes (en minuscules) : "PS5", "playstation 5", "GBA SP"…
+const CONSOLE_CATALOG = [
+  { key: "ps1", label: "PlayStation", maker: "Sony", year: 1994, re: /\bps ?1\b|\bpsx\b|\bps ?one\b|playstation ?1\b|^playstation$/ },
+  { key: "ps2", label: "PlayStation 2", maker: "Sony", year: 2000, re: /\bps ?2\b|playstation ?2/ },
+  { key: "psp", label: "PSP", maker: "Sony", year: 2004, re: /\bpsp\b/ },
+  { key: "ps3", label: "PlayStation 3", maker: "Sony", year: 2006, re: /\bps ?3\b|playstation ?3/ },
+  { key: "psvita", label: "PS Vita", maker: "Sony", year: 2011, re: /vita/ },
+  { key: "ps4", label: "PlayStation 4", maker: "Sony", year: 2013, re: /\bps ?4\b|playstation ?4/ },
+  { key: "ps5", label: "PlayStation 5", maker: "Sony", year: 2020, re: /\bps ?5\b|playstation ?5/ },
+  { key: "nes", label: "NES", maker: "Nintendo", year: 1983, re: /^nes$|nintendo entertainment/ },
+  { key: "gb", label: "Game Boy", maker: "Nintendo", year: 1989, re: /^(game ?boy|gb)$|game ?boy (classic|pocket)/ },
+  { key: "snes", label: "Super Nintendo", maker: "Nintendo", year: 1990, re: /\bsnes\b|super ?(nintendo|nes)/ },
+  { key: "n64", label: "Nintendo 64", maker: "Nintendo", year: 1996, re: /\bn64\b|nintendo ?64/ },
+  { key: "gbc", label: "Game Boy Color", maker: "Nintendo", year: 1998, re: /\bgbc\b|game ?boy color/ },
+  { key: "gamecube", label: "GameCube", maker: "Nintendo", year: 2001, re: /game ?cube|\bngc\b|^gc$/ },
+  { key: "gba", label: "Game Boy Advance", maker: "Nintendo", year: 2001, re: /\bgba\b|game ?boy advance/ },
+  { key: "ds", label: "Nintendo DS", maker: "Nintendo", year: 2004, re: /^ds$|\bnds\b|nintendo ds\b|\bds ?lite\b|\bdsi\b/ },
+  { key: "wii", label: "Wii", maker: "Nintendo", year: 2006, re: /^wii$|^nintendo wii$/ },
+  { key: "3ds", label: "Nintendo 3DS", maker: "Nintendo", year: 2011, re: /[23]ds/ },
+  { key: "wiiu", label: "Wii U", maker: "Nintendo", year: 2012, re: /wii ?u/ },
+  { key: "switch", label: "Nintendo Switch", maker: "Nintendo", year: 2017, re: /switch(?! ?2)/ },
+  { key: "switch2", label: "Nintendo Switch 2", maker: "Nintendo", year: 2025, re: /switch ?2/ },
+  { key: "xbox", label: "Xbox", maker: "Microsoft", year: 2001, re: /^xbox( ?(original|classic))?$/ },
+  { key: "x360", label: "Xbox 360", maker: "Microsoft", year: 2005, re: /360/ },
+  { key: "xone", label: "Xbox One", maker: "Microsoft", year: 2013, re: /xbox ?one|^xone$/ },
+  { key: "xseries", label: "Xbox Series X|S", maker: "Microsoft", year: 2020, re: /series|\bxsx\b|\bxss\b/ },
+  { key: "mastersystem", label: "Master System", maker: "Sega", year: 1985, re: /master ?system/ },
+  { key: "megadrive", label: "Mega Drive", maker: "Sega", year: 1988, re: /mega ?drive|genesis/ },
+  { key: "saturn", label: "Saturn", maker: "Sega", year: 1994, re: /saturn/ },
+  { key: "dreamcast", label: "Dreamcast", maker: "Sega", year: 1998, re: /dreamcast/ },
+  { key: "pc", label: "PC", maker: "PC", year: 1, re: /\bpc\b|steam|windows/ },
+];
+
+function consoleInfo(name) {
+  const raw = (name || "").trim();
+  if (!raw) return { key: "none", label: "Sans console", maker: "Autres", year: -1 };
+  const n = raw.toLowerCase();
+  const hit = CONSOLE_CATALOG.find((c) => c.re.test(n));
+  return hit || { key: "other:" + n, label: raw, maker: "Autres", year: 0 };
+}
+
+function compareConsoleInfo(a, b) {
+  const ma = MAKERS.indexOf(a.maker);
+  const mb = MAKERS.indexOf(b.maker);
+  if (ma !== mb) return ma - mb;
+  if (a.year !== b.year) return b.year - a.year; // plus récent d'abord
+  return a.label.localeCompare(b.label, "fr");
+}
+
+// Liste de jeux -> [{ maker, count, consoles: [{ key, label, games }] }] : constructeurs dans l'ordre fixé, consoles de la plus récente à la plus ancienne.
+function groupByMaker(list) {
+  const byConsole = new Map();
+  list.forEach((g) => {
+    const info = consoleInfo(g.console);
+    if (!byConsole.has(info.key)) byConsole.set(info.key, { info, games: [] });
+    byConsole.get(info.key).games.push(g);
+  });
+  const makers = [];
+  Array.from(byConsole.values())
+    .sort((a, b) => compareConsoleInfo(a.info, b.info))
+    .forEach(({ info, games }) => {
+      let m = makers.find((x) => x.maker === info.maker);
+      if (!m) {
+        m = { maker: info.maker, count: 0, consoles: [] };
+        makers.push(m);
+      }
+      m.consoles.push({ key: info.key, label: info.label, games });
+      m.count += games.length;
+    });
+  return makers;
+}
+
+// Consoles proposées dans le select : celles de ta collection + les consoles courantes, sans doublon, dans l'ordre des sorties.
+function consoleOptionsFor(used) {
+  const keys = new Set(used.map((c) => consoleInfo(c).key));
+  const extra = CONSOLE_PRESETS.filter((c) => !keys.has(consoleInfo(c).key));
+  return [...used, ...extra].sort((a, b) => compareConsoleInfo(consoleInfo(a), consoleInfo(b)) || a.localeCompare(b));
+}
+
+// Préférences d'affichage mémorisées sur cet appareil.
+const VIEW_KEY = "ludotheque-view";
+function loadViewPrefs() {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}");
+    return { mode: v.mode === "covers" ? "covers" : "spines", group: v.group !== false, collapsed: Array.isArray(v.collapsed) ? v.collapsed : [] };
+  } catch (e) {
+    return { mode: "spines", group: true, collapsed: [] };
+  }
+}
+
+// Les anciens jeux « Envie » (statut supprimé) deviennent « À faire ».
+function normalizeGame(g) {
+  return STATUS[g.status] ? g : { ...g, status: "backlog" };
+}
+
+// ---- Harmonisation des genres : rattache un genre libre au genre standard le plus proche ----
+const GENRES_KEY = "ludotheque-genres-harmonized";
+const stripAccents = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+// Règles testées dans cet ordre en cas d'égalité ; on retient celle qui apparaît le plus tôt dans le texte.
+const GENRE_RULES = [
+  ["Action-RPG", /action\W*rpg|souls|hack\W*(and|n|&)?\W*slash/],
+  ["Action-Aventure", /action\W*(aventure|adventure)|infiltration|stealth|metroidvania/],
+  ["Horreur", /horreur|horror/],
+  ["Roguelike", /rogue(like|lite)/],
+  ["Tir (FPS / TPS)", /\bfps\b|\btps\b|shooter|looter|battle royale|\btir\b/],
+  ["RPG", /\bj?rpg\b|jeu de role/],
+  ["Aventure", /point\W*(&|and|et)\W*click|narrati|visual novel|aventure/],
+  ["Combat", /beat\W*em\W*up|combat|fighting|versus/],
+  ["Course", /course|racing/],
+  ["Plateforme", /plateforme|platform/],
+  ["Puzzle", /puzzle|reflexion/],
+  ["Sport", /\bsport/],
+  ["Simulation", /simulation|gestion|city\W*builder|sandbox|simulateur/],
+  ["Stratégie", /strategie|tactique|tour par tour|\bstr\b|temps reel/],
+];
+// Utilisées seulement si aucune règle précise ne correspond.
+const GENRE_FALLBACK = [
+  ["Action", /\baction\b/],
+  ["Simulation", /survie|survival|conduite/],
+];
+
+function harmonizeGenre(raw) {
+  const n = stripAccents(raw).trim();
+  if (!n) return null;
+  const exact = GENRES.find((g) => stripAccents(g) === n);
+  if (exact) return exact;
+  let best = null;
+  GENRE_RULES.forEach(([genre, re]) => {
+    const m = re.exec(n);
+    if (m && (!best || m.index < best.index)) best = { genre, index: m.index };
+  });
+  if (best) return best.genre;
+  const fb = GENRE_FALLBACK.find(([, re]) => re.test(n));
+  return fb ? fb[0] : null;
+}
+
+function harmonizeGames(list) {
+  let changed = 0;
+  const out = list.map((g) => {
+    if (!g.genre || GENRES.includes(g.genre)) return g;
+    const h = harmonizeGenre(g.genre);
+    if (!h || h === g.genre) return g;
+    changed++;
+    return { ...g, genre: h };
+  });
+  return { list: out, changed };
+}
+
 function isPlayStationConsole(name) {
   return PLAYSTATION_FAMILIES.includes(consoleFamily(name));
 }
@@ -139,7 +286,6 @@ const IMPORT_FIELDS = [
   { key: "genre", label: "Genre", guesses: ["genre", "type", "category", "catégorie"] },
   { key: "year", label: "Année", guesses: ["année", "annee", "year", "date de sortie", "release"] },
   { key: "status", label: "Statut", guesses: ["statut", "status", "état", "etat"] },
-  { key: "progression", label: "Progression", guesses: ["progression", "progress", "avancement", "%"] },
   { key: "pegi", label: "PEGI", guesses: ["pegi", "classification", "âge", "age"] },
   { key: "platinum", label: "Platine", guesses: ["platine", "platinum", "trophée"] },
   { key: "metacritic", label: "Metacritic", guesses: ["metacritic", "metascore", "note metacritic"] },
@@ -168,8 +314,7 @@ function guessStatusKey(raw) {
   if (!raw) return "backlog";
   const v = raw.toLowerCase().trim();
   const table = {
-    wishlist: ["envie", "wishlist", "à acheter", "a acheter", "souhait"],
-    backlog: ["à faire", "a faire", "backlog", "todo", "non commencé", "non commence"],
+    backlog: ["à faire", "a faire", "backlog", "todo", "non commencé", "non commence", "envie", "wishlist", "à acheter", "a acheter", "souhait"],
     playing: ["en cours", "playing", "in progress", "cours"],
     done: ["terminé", "termine", "done", "fini", "completed", "complété", "complete"],
     dropped: ["abandonné", "abandonne", "dropped", "arrêté", "arrete"],
@@ -193,7 +338,6 @@ const emptyGame = () => ({
   genre: "",
   year: "",
   status: "backlog",
-  progression: 0,
   synopsis: "",
   modes: [],
   pegi: "",
@@ -352,29 +496,18 @@ const GLOBAL_CSS = `
           gap: 8px;
           align-items: flex-end;
         }
-        .lt-shelf-groups {
-          display: flex;
-          flex-direction: column;
-          gap: 28px;
+        .lt-shelf-groups { display: flex; flex-direction: column; gap: 38px; }
+        .lt-maker-title {
+          display: flex; align-items: baseline; gap: 10px; margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.3px;
         }
-        .lt-shelf-group-header {
-          font-size: 13px;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.6px;
-          color: var(--text-muted);
-          border-bottom: 1px solid var(--border);
-          padding-bottom: 8px;
-          margin-bottom: 14px;
-          display: flex;
-          align-items: baseline;
-          gap: 8px;
+        .lt-maker-title span, .lt-console-title span {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--gold); font-weight: 700; font-size: 12px; letter-spacing: 0;
         }
-        .lt-shelf-group-header span {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-          color: var(--gold);
-          font-weight: 700;
-          font-size: 12px;
+        .lt-console-group { margin-top: 18px; }
+        .lt-console-title {
+          position: sticky; top: 0; z-index: 5; display: flex; align-items: baseline; gap: 8px;
+          margin: 0 0 14px; padding: 10px 0 8px; background: var(--bg); border-bottom: 1px solid var(--border);
+          font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted);
         }
         .lt-icon-btn {
           background: transparent;
@@ -550,11 +683,6 @@ const GLOBAL_CSS = `
           justify-content: center;
           overflow: hidden;
         }
-        .lt-box-front-img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
         .lt-box-front-title {
           font-size: 13px;
           font-weight: 800;
@@ -679,15 +807,6 @@ const GLOBAL_CSS = `
           font-weight: 600;
         }
         .lt-status-btn.active { color: #1A1710; border-color: transparent; }
-        .lt-progress-row { display: flex; align-items: center; gap: 10px; }
-        .lt-progress-row input[type="range"] { flex: 1; accent-color: var(--gold); }
-        .lt-progress-val {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-          font-size: 12px;
-          color: var(--gold);
-          width: 38px;
-          text-align: right;
-        }
         .lt-save-indicator {
           font-size: 11px;
           color: var(--text-muted);
@@ -759,7 +878,6 @@ const GLOBAL_CSS = `
         }
         .lt-image-slot-cover { width: 72px; height: 96px; }
         .lt-image-slot-filled { border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
-        .lt-image-slot img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer; }
         .lt-shots-row {
           display: flex;
           gap: 10px;
@@ -772,7 +890,6 @@ const GLOBAL_CSS = `
           overflow: hidden;
         }
         .lt-shot-slot-filled { border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
-        .lt-shot-slot img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer; }
         .lt-shot-slot-add {
           border: 1.5px dashed var(--border);
           background: var(--bg);
@@ -787,22 +904,6 @@ const GLOBAL_CSS = `
           font-weight: 600;
         }
         .lt-shot-slot-add:hover { border-color: var(--gold); color: var(--gold); }
-        .lt-image-pos-badge {
-          position: absolute;
-          bottom: 2px;
-          left: 2px;
-          background: rgba(0,0,0,0.65);
-          color: var(--gold);
-          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-          font-size: 9px;
-          font-weight: 700;
-          border-radius: 3px;
-          padding: 0px 4px;
-          cursor: pointer;
-          border: none;
-          z-index: 2;
-        }
-        .lt-image-pos-badge:hover { background: rgba(0,0,0,0.85); }
         .lt-image-hint {
           font-size: 11px;
           color: var(--text-muted);
@@ -1016,6 +1117,56 @@ const GLOBAL_CSS = `
         .lt-count { background: var(--gold); color: #16130A; border-radius: 10px; font-size: 11px; font-weight: 800; padding: 0 6px; margin-left: 2px; }
         .lt-filters-reset { background: none; border: none; color: var(--text-muted); font-size: 12px; text-decoration: underline; cursor: pointer; padding: 8px 4px; }
 
+        /* ---- Bascule d'affichage + jaquettes ---- */
+        .lt-seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; background: var(--bg); }
+        .lt-seg button {
+          display: flex; align-items: center; justify-content: center; gap: 6px; background: none; border: none; color: var(--text-muted);
+          padding: 9px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+        }
+        .lt-seg button + button { border-left: 1px solid var(--border); }
+        .lt-seg button.on { background: var(--surface2); color: var(--gold); }
+        .lt-seg button:not(.on):hover { color: var(--text); }
+        .lt-img { position: absolute; inset: 0; display: block; overflow: hidden; background: #0c0c0e; }
+        .lt-img-bg { position: absolute; inset: -10%; background-size: cover; background-position: center; filter: blur(14px) brightness(0.5) saturate(1.15); }
+        .lt-img img { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; }
+        .lt-img-btn { position: absolute; inset: 0; padding: 0; border: none; background: none; cursor: zoom-in; }
+        .lt-box-front { position: relative; }
+        .lt-cover-accent { position: absolute; left: 0; top: 0; bottom: 0; width: 5px; z-index: 1; box-shadow: 1px 0 4px rgba(0,0,0,0.45); }
+        .lt-collapse-btn {
+          display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 0; background: none; border: none; cursor: pointer;
+          color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left;
+        }
+        .lt-collapse-btn:hover { color: var(--text); }
+        .lt-chev { align-self: center; flex-shrink: 0; transition: transform 0.15s ease; }
+        .lt-chev.closed { transform: rotate(-90deg); }
+        .lt-toast {
+          position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 80;
+          display: flex; align-items: center; gap: 12px; max-width: min(92vw, 460px); padding: 12px 14px;
+          background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); font-size: 13px;
+        }
+        .lt-toast button { background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; padding: 4px; }
+        .lt-covers { --cw: 150px; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cw), 1fr)); gap: 14px; align-items: start; }
+        .lt-cover {
+          aspect-ratio: 2 / 3; container-type: inline-size; position: relative; display: block; width: 100%; padding: 0; border: none; border-radius: 6px;
+          overflow: hidden; cursor: pointer; background: #111; text-align: left;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.06);
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .lt-cover-fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 10px 8px 26px; text-align: center; }
+        .lt-cover-title { font-weight: 800; line-height: 1.15; font-size: 12px; font-size: clamp(11px, 11cqw, 17px); overflow-wrap: anywhere; }
+        .lt-cover-label { position: absolute; bottom: 8px; left: 0; right: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9px; font-weight: 700; letter-spacing: 1px; opacity: 0.6; }
+        .lt-cover-hover {
+          z-index: 2; position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 8px 8px; font-size: 12px; font-weight: 700; line-height: 1.2; color: #fff;
+          background: linear-gradient(transparent, rgba(0,0,0,0.88)); opacity: 0; transition: opacity 0.15s ease;
+        }
+        .lt-cover-chip { z-index: 2; position: absolute; top: 6px; left: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9px; font-weight: 700; background: rgba(0,0,0,0.7); color: #fff; border-radius: 4px; padding: 1px 5px; }
+        .lt-cover:focus-visible, .lt-spine:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+        .lt-cover:focus-visible .lt-cover-hover { opacity: 1; }
+        @media (hover: hover) {
+          .lt-cover:hover { transform: translateY(-4px) scale(1.03); box-shadow: var(--shadow-lg); z-index: 2; }
+          .lt-cover:hover .lt-cover-hover { opacity: 1; }
+        }
+
         /* ---- Fiche détail (feuille) ---- */
         .lt-sheet-overlay {
           position: fixed; inset: 0; z-index: 50; background: rgba(6,6,7,0.72);
@@ -1079,9 +1230,14 @@ const GLOBAL_CSS = `
           .lt-login-card input { font-size: 16px; }
           .lt-status-btn { padding: 9px 13px; font-size: 13px; min-height: 40px; }
           .lt-toggle { min-height: 44px; }
-          .lt-progress-row input[type="range"] { height: 32px; }
-          .lt-image-pos-badge { min-width: 28px; min-height: 28px; font-size: 12px; display: flex; align-items: center; justify-content: center; }
           .lt-image-remove { width: 28px; height: 28px; }
+          .lt-seg button { min-width: 44px; min-height: 44px; padding: 0; }
+          .lt-seg button span { display: none; }
+          .lt-filters-btn { padding: 0 12px; min-width: 48px; gap: 4px; }
+          .lt-btn-label { display: none; }
+          .lt-covers { --cw: 104px; gap: 10px; }
+          .lt-maker-title { font-size: 18px; }
+          .lt-collapse-btn { min-height: 36px; align-items: center; }
           .lt-only-mobile { display: inline-flex; }
           .lt-only-desktop { display: none; }
           .lt-sheet-overlay { padding: 0; align-items: stretch; }
@@ -1115,7 +1271,10 @@ function Ludotheque({ user, onSignOut }) {
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [pickedGame, setPickedGame] = useState(null); // "empty" | game | null
-  const [groupByConsole, setGroupByConsole] = useState(false);
+  const [viewMode, setViewMode] = useState(() => loadViewPrefs().mode); // "spines" | "covers"
+  const [groupByConsole, setGroupByConsole] = useState(() => loadViewPrefs().group);
+  const [collapsed, setCollapsed] = useState(() => new Set(loadViewPrefs().collapsed)); // clés « m:Sony » / « c:ps3 »
+  const [notice, setNotice] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const backupInputRef = useRef(null);
   const saveTimer = useRef(null);
@@ -1125,7 +1284,7 @@ function Ludotheque({ user, onSignOut }) {
   const pendingRef = useRef(false);
   const syncingRef = useRef(false);
   const dirtyRef = useRef(false);
-  const migratingRef = useRef(false);
+  const flagsAfterSyncRef = useRef([]); // clés localStorage à poser une fois l'envoi cloud réussi
   const lastFetchRef = useRef(0);
   const [syncError, setSyncError] = useState(false);
 
@@ -1145,10 +1304,8 @@ function Ludotheque({ user, onSignOut }) {
       pendingRef.current = false;
       setSyncError(false);
       setSaving(false);
-      if (migratingRef.current) {
-        migratingRef.current = false;
-        localStorage.setItem(MIGRATED_KEY, "1");
-      }
+      flagsAfterSyncRef.current.forEach((k) => localStorage.setItem(k, "1"));
+      flagsAfterSyncRef.current = [];
     } catch (e) {
       console.error("Erreur de synchro", e);
       setSyncError(true);
@@ -1177,9 +1334,22 @@ function Ludotheque({ user, onSignOut }) {
         const cloud = await fetchAllGames(supabase);
         if (cancelled) return;
         lastFetchRef.current = Date.now();
+        let list = cloud.map(normalizeGame);
+        if (!localStorage.getItem(GENRES_KEY)) {
+          // Harmonisation unique des genres existants (une fois par appareil)
+          const h = harmonizeGames(list);
+          if (h.changed) {
+            list = h.list;
+            flagsAfterSyncRef.current.push(GENRES_KEY);
+            setNotice(`Genres harmonisés : ${h.changed} jeu${h.changed > 1 ? "x" : ""} mis à jour.`);
+          } else {
+            localStorage.setItem(GENRES_KEY, "1");
+          }
+        }
         syncedRef.current = new Map(cloud.map((g) => [g.id, g]));
-        latestRef.current = cloud;
-        setGames(cloud);
+        latestRef.current = list;
+        setGames(list);
+        if (list.some((g, i) => g !== cloud[i])) persist(list); // anciens « Envie » -> « À faire » + genres, envoyés au cloud
         if (!localStorage.getItem(MIGRATED_KEY)) {
           // Fusion unique des données locales d'avant la synchro : on n'ajoute que les jeux absents du cloud.
           let local = [];
@@ -1191,11 +1361,11 @@ function Ludotheque({ user, onSignOut }) {
           }
           const cloudIds = new Set(cloud.map((g) => g.id));
           const toMerge = (Array.isArray(local) ? local : [])
-            .map((g) => ({ ...g, id: g.id || uid() }))
+            .map((g) => normalizeGame({ ...g, id: g.id || uid() }))
             .filter((g) => !cloudIds.has(g.id));
           if (toMerge.length) {
-            migratingRef.current = true; // le drapeau n'est posé qu'une fois l'envoi réussi
-            persist([...cloud, ...toMerge]);
+            flagsAfterSyncRef.current.push(MIGRATED_KEY); // posé seulement une fois l'envoi réussi
+            persist([...list, ...harmonizeGames(toMerge).list]);
           } else {
             localStorage.setItem(MIGRATED_KEY, "1");
           }
@@ -1223,10 +1393,12 @@ function Ludotheque({ user, onSignOut }) {
         const cloud = await fetchAllGames(supabase);
         if (pendingRef.current || syncingRef.current) return; // une modif locale est partie entre-temps
         lastFetchRef.current = Date.now();
+        const list = cloud.map(normalizeGame);
         syncedRef.current = new Map(cloud.map((g) => [g.id, g]));
-        latestRef.current = cloud;
-        setGames(cloud);
+        latestRef.current = list;
+        setGames(list);
         setSyncError(false);
+        if (list.some((g, i) => g !== cloud[i])) persist(list);
       } catch (e) {
         console.error("Erreur de rafraîchissement", e);
       }
@@ -1275,16 +1447,56 @@ function Ludotheque({ user, onSignOut }) {
     return { updated, added };
   }
 
-  const activeFilters = (filterConsole ? 1 : 0) + (filterStatus ? 1 : 0) + (sortBy !== "title" ? 1 : 0) + (groupByConsole ? 1 : 0);
+  const activeFilters = (filterConsole ? 1 : 0) + (filterStatus ? 1 : 0) + (sortBy !== "title" ? 1 : 0);
+
+  const searching = search.trim().length > 0;
+  const consoleKeys = useMemo(() => groupByMaker(games || []).flatMap((m) => m.consoles.map((c) => c.key)), [games]);
+  const allCollapsed = consoleKeys.length > 0 && consoleKeys.every((k) => collapsed.has("c:" + k));
+
+  function toggleCollapse(key) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function collapseAll() {
+    setCollapsed(new Set(consoleKeys.map((k) => "c:" + k)));
+  }
+
+  function harmonizeNow() {
+    const h = harmonizeGames(games);
+    if (!h.changed) {
+      setNotice("Tous les genres sont déjà dans la liste.");
+      return;
+    }
+    persist(h.list);
+    setNotice(`Genres harmonisés : ${h.changed} jeu${h.changed > 1 ? "x" : ""} mis à jour.`);
+  }
 
   function resetFilters() {
     setFilterConsole("");
     setFilterStatus("");
     setSortBy("title");
-    setGroupByConsole(false);
   }
 
   useScrollLock(!!(selected || creating || importing || pickedGame));
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, JSON.stringify({ mode: viewMode, group: groupByConsole, collapsed: Array.from(collapsed) }));
+    } catch (e) {
+      /* stockage indisponible : on ne mémorise pas */
+    }
+  }, [viewMode, groupByConsole, collapsed]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 9000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   function pickRandom() {
     const candidates = games.filter((g) => g.status === "backlog");
@@ -1339,7 +1551,7 @@ function Ludotheque({ user, onSignOut }) {
 
   const consoles = useMemo(() => {
     if (!games) return [];
-    return Array.from(new Set(games.map((g) => g.console).filter(Boolean))).sort();
+    return Array.from(new Set(games.map((g) => g.console).filter(Boolean))).sort((a, b) => compareConsoleInfo(consoleInfo(a), consoleInfo(b)) || a.localeCompare(b));
   }, [games]);
 
   const filtered = useMemo(() => {
@@ -1350,11 +1562,11 @@ function Ludotheque({ user, onSignOut }) {
       const matchStatus = !filterStatus || g.status === filterStatus;
       return matchSearch && matchConsole && matchStatus;
     });
+    const byTitle = (a, b) => a.title.localeCompare(b.title, "fr");
     list.sort((a, b) => {
-      if (sortBy === "title") return a.title.localeCompare(b.title);
-      if (sortBy === "console") return (a.console || "").localeCompare(b.console || "");
-      if (sortBy === "status") return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
-      return 0;
+      if (sortBy === "console") return compareConsoleInfo(consoleInfo(a.console), consoleInfo(b.console)) || byTitle(a, b);
+      if (sortBy === "status") return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || byTitle(a, b);
+      return byTitle(a, b);
     });
     return list;
   }, [games, search, filterConsole, filterStatus, sortBy]);
@@ -1375,15 +1587,14 @@ function Ludotheque({ user, onSignOut }) {
     }, 0);
   }, [games]);
 
-  const groupedByConsole = useMemo(() => {
-    const map = new Map();
-    filtered.forEach((g) => {
-      const key = g.console || "Sans console";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(g);
-    });
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filtered]);
+  const groupedByMaker = useMemo(() => groupByMaker(filtered), [filtered]);
+
+  const openOnKey = (g) => (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setSelected(g);
+    }
+  };
 
   function renderSpine(g) {
     const style = getSpineStyle(g.console);
@@ -1391,9 +1602,13 @@ function Ludotheque({ user, onSignOut }) {
       <div
         key={g.id}
         className="lt-spine"
+        role="button"
+        tabIndex={0}
         style={{ background: style.bg, width: style.width, height: style.height }}
         onClick={() => setSelected(g)}
+        onKeyDown={openOnKey(g)}
         title={g.title}
+        aria-label={g.title}
       >
         <span className="lt-spine-title" style={{ color: style.text, maxHeight: style.height - 45 }}>
           {g.title || "Sans titre"}
@@ -1406,6 +1621,39 @@ function Ludotheque({ user, onSignOut }) {
       </div>
     );
   }
+
+  // Mode « jaquettes » : cartes 2:3 uniformes ; l'image est affichée entière (fond flou), sans recadrage.
+  function renderCover(g) {
+    const style = getSpineStyle(g.console);
+    const img = firstImage(g);
+    return (
+      <button
+        key={g.id}
+        className="lt-cover"
+        style={{ background: img ? "#0c0c0e" : style.bg }}
+        onClick={() => setSelected(g)}
+        title={g.title}
+        aria-label={g.title}
+      >
+        {img ? (
+          <>
+            <CoverImage src={img.src} />
+            <span className="lt-cover-accent" style={{ background: style.bg }} />
+            <span className="lt-cover-hover">{g.title}</span>
+            {!groupByConsole && style.label && <span className="lt-cover-chip">{style.label}</span>}
+          </>
+        ) : (
+          <span className="lt-cover-fallback" style={{ color: style.text }}>
+            <span className="lt-cover-title">{g.title || "Sans titre"}</span>
+            {style.label && <span className="lt-cover-label">{style.label}</span>}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  const renderGames = (list) =>
+    viewMode === "covers" ? <div className="lt-covers">{list.map((g) => renderCover(g))}</div> : <div className="lt-shelf">{list.map((g) => renderSpine(g))}</div>;
 
   return (
     <div className="lt-root">
@@ -1440,6 +1688,15 @@ function Ludotheque({ user, onSignOut }) {
           </div>
           <MoreMenu
             items={[
+              ...(groupByConsole
+                ? [
+                    allCollapsed
+                      ? { label: "Tout déplier", icon: <ChevronsUpDown size={16} />, onClick: () => setCollapsed(new Set()) }
+                      : { label: "Tout replier", icon: <ChevronsDownUp size={16} />, onClick: collapseAll },
+                  ]
+                : []),
+              { label: "Harmoniser les genres", icon: <Tags size={16} />, onClick: harmonizeNow },
+              { divider: true },
               { label: "Importer un CSV", icon: <Upload size={16} />, onClick: () => setImporting(true) },
               { label: "Exporter une sauvegarde", icon: <Download size={16} />, onClick: exportBackup },
               { label: "Restaurer une sauvegarde", icon: <Upload size={16} />, onClick: () => backupInputRef.current && backupInputRef.current.click() },
@@ -1462,12 +1719,21 @@ function Ludotheque({ user, onSignOut }) {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
+            <div className="lt-seg" role="group" aria-label="Mode d'affichage">
+              <button className={viewMode === "spines" ? "on" : ""} onClick={() => setViewMode("spines")} aria-pressed={viewMode === "spines"} aria-label="Affichage en tranches" title="Tranches">
+                <Library size={16} /> <span>Tranches</span>
+              </button>
+              <button className={viewMode === "covers" ? "on" : ""} onClick={() => setViewMode("covers")} aria-pressed={viewMode === "covers"} aria-label="Affichage en jaquettes" title="Jaquettes">
+                <LayoutGrid size={16} /> <span>Jaquettes</span>
+              </button>
+            </div>
             <button
               className={"lt-btn lt-filters-btn" + (activeFilters ? " lt-toggle-active" : "")}
               onClick={() => setFiltersOpen((v) => !v)}
               aria-expanded={filtersOpen}
+              aria-label="Filtres"
             >
-              <SlidersHorizontal size={16} /> Filtres
+              <SlidersHorizontal size={16} /> <span className="lt-btn-label">Filtres</span>
               {activeFilters > 0 && <span className="lt-count">{activeFilters}</span>}
             </button>
           </div>
@@ -1494,7 +1760,7 @@ function Ludotheque({ user, onSignOut }) {
               onClick={() => setGroupByConsole((v) => !v)}
               aria-pressed={groupByConsole}
             >
-              <Layers size={15} /> Grouper par console
+              <Layers size={15} /> Grouper
             </button>
             {activeFilters > 0 && (
               <button className="lt-filters-reset" onClick={resetFilters}>Réinitialiser</button>
@@ -1523,22 +1789,38 @@ function Ludotheque({ user, onSignOut }) {
         </div>
       )}
 
-      {games && filtered.length > 0 && !groupByConsole && (
-        <div className="lt-shelf">
-          {filtered.map((g) => renderSpine(g))}
-        </div>
-      )}
+      {games && filtered.length > 0 && !groupByConsole && renderGames(filtered)}
 
       {games && filtered.length > 0 && groupByConsole && (
         <div className="lt-shelf-groups">
-          {groupedByConsole.map(([consoleName, gamesInGroup]) => (
-            <div key={consoleName} className="lt-shelf-group">
-              <div className="lt-shelf-group-header">
-                {consoleName} <span>{gamesInGroup.length}</span>
-              </div>
-              <div className="lt-shelf">{gamesInGroup.map((g) => renderSpine(g))}</div>
-            </div>
-          ))}
+          {groupedByMaker.map((m) => {
+            const mOpen = searching || !collapsed.has("m:" + m.maker);
+            return (
+              <section key={m.maker} className="lt-maker">
+                <h2 className="lt-maker-title">
+                  <button className="lt-collapse-btn" onClick={() => toggleCollapse("m:" + m.maker)} aria-expanded={mOpen}>
+                    <ChevronDown size={18} className={"lt-chev" + (mOpen ? "" : " closed")} />
+                    {m.maker} <span>{m.count}</span>
+                  </button>
+                </h2>
+                {mOpen &&
+                  m.consoles.map((c) => {
+                    const cOpen = searching || !collapsed.has("c:" + c.key);
+                    return (
+                      <div key={c.key} className="lt-console-group">
+                        <h3 className="lt-console-title">
+                          <button className="lt-collapse-btn" onClick={() => toggleCollapse("c:" + c.key)} aria-expanded={cOpen}>
+                            <ChevronDown size={14} className={"lt-chev" + (cOpen ? "" : " closed")} />
+                            {c.label} <span>{c.games.length}</span>
+                          </button>
+                        </h3>
+                        {cOpen && renderGames(c.games)}
+                      </div>
+                    );
+                  })}
+              </section>
+            );
+          })}
         </div>
       )}
 
@@ -1546,7 +1828,7 @@ function Ludotheque({ user, onSignOut }) {
         <GameModal
           game={selected || emptyGame()}
           isNew={!!creating}
-          consoleOptions={Array.from(new Set([...consoles, ...CONSOLE_PRESETS])).sort()}
+          consoleOptions={consoleOptionsFor(consoles)}
           onClose={() => {
             setSelected(null);
             setCreating(false);
@@ -1563,6 +1845,15 @@ function Ludotheque({ user, onSignOut }) {
 
       {importing && (
         <ImportModal onClose={() => setImporting(false)} onImport={importGames} />
+      )}
+
+      {notice && (
+        <div className="lt-toast" role="status">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} aria-label="Fermer le message">
+            <X size={14} />
+          </button>
+        </div>
       )}
 
       {pickedGame && (
@@ -1681,9 +1972,19 @@ function MoreMenu({ items }) {
   );
 }
 
+// Image jamais recadrée : elle s'affiche entière, et la même image floutée comble les bords du cadre.
+function CoverImage({ src }) {
+  return (
+    <span className="lt-img">
+      <span className="lt-img-bg" style={{ backgroundImage: `url("${String(src).replace(/"/g, "%22")}")` }} aria-hidden="true" />
+      <img src={src} alt="" loading="lazy" decoding="async" draggable={false} />
+    </span>
+  );
+}
+
 function GameBox({ game, scale = 1 }) {
   const style = getSpineStyle(game.console);
-  const img = game.images && game.images[0];
+  const img = firstImage(game);
   return (
     <div className="lt-box-wrap">
       <div className="lt-box" style={{ width: Math.round((style.boxW + style.boxSpine) * scale), height: Math.round(style.boxH * scale) }}>
@@ -1696,12 +1997,7 @@ function GameBox({ game, scale = 1 }) {
         </div>
         <div className="lt-box-front" style={{ background: style.bg }}>
           {img ? (
-            <img
-              src={img.src}
-              alt=""
-              className="lt-box-front-img"
-              style={{ objectPosition: img.position === "top" ? "center top" : img.position === "bottom" ? "center bottom" : "center center" }}
-            />
+            <CoverImage src={img.src} />
           ) : (
             <span className="lt-box-front-title" style={{ color: style.text }}>
               {game.title || "Nouveau jeu"}
@@ -1811,30 +2107,11 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
     update("images", next);
   }
 
-  function cycleImagePosition(idx) {
-    const order = ["center", "top", "bottom"];
-    const cur = form.images[idx];
-    if (!cur) return;
-    const next = [...form.images];
-    const i = order.indexOf(cur.position || "center");
-    next[idx] = { ...cur, position: order[(i + 1) % order.length] };
-    update("images", next);
-  }
-
   function removeCollectorImage() {
     update("collectorImage", null);
   }
 
-  function cycleCollectorImagePosition() {
-    if (!form.collectorImage) return;
-    const order = ["center", "top", "bottom"];
-    const i = order.indexOf(form.collectorImage.position || "center");
-    update("collectorImage", { ...form.collectorImage, position: order[(i + 1) % order.length] });
-  }
-
   const consoleOk = !!form.console;
-  const posOf = (img) => (img.position === "top" ? "center top" : img.position === "bottom" ? "center bottom" : "center center");
-  const posLabel = (img) => (img.position === "top" ? "H" : img.position === "bottom" ? "B" : "C");
 
   function handleDelete() {
     if (window.confirm(`Supprimer « ${form.title || "ce jeu"} » de ta ludothèque ?`)) onDelete(form.id);
@@ -1908,33 +2185,20 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
                 </div>
               </div>
 
-              <div className="lt-row">
-                <div className="lt-field" style={{ flex: "2 1 200px" }}>
-                  <label>Progression</label>
-                  <div className="lt-progress-row">
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={form.progression}
-                      onChange={(e) => update("progression", Number(e.target.value))}
-                    />
-                    <span className="lt-progress-val">{form.progression}%</span>
-                  </div>
+              {isPlayStationConsole(form.console) && (
+                <div className="lt-field" style={{ maxWidth: 260 }}>
+                  <label>Platine</label>
+                  <button
+                    className={"lt-toggle" + (form.platinum ? " active" : "")}
+                    onClick={() => update("platinum", !form.platinum)}
+                    aria-pressed={form.platinum}
+                  >
+                    <Trophy size={13} />
+                    <span style={{ flex: 1, textAlign: "left" }}>Platine obtenu</span>
+                    <span className="lt-toggle-track"><span className="lt-toggle-thumb" /></span>
+                  </button>
                 </div>
-                {isPlayStationConsole(form.console) && (
-                  <div className="lt-field" style={{ flex: "0 1 130px" }}>
-                    <label>Platine</label>
-                    <button
-                      className={"lt-toggle" + (form.platinum ? " active" : "")}
-                      onClick={() => update("platinum", !form.platinum)}
-                    >
-                      <Trophy size={13} />
-                      <span className="lt-toggle-track"><span className="lt-toggle-thumb" /></span>
-                    </button>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           </div>
 
@@ -2068,22 +2332,8 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
               <div className="lt-images-row">
                 {form.images[0] ? (
                   <div className="lt-image-slot lt-image-slot-filled lt-image-slot-cover">
-                    <img
-                      src={form.images[0].src}
-                      alt="Jaquette"
-                      style={{ objectPosition: posOf(form.images[0]) }}
-                      onClick={() => setLightboxSrc(form.images[0].src)}
-                      title="Cliquer pour agrandir"
-                    />
-                    <button
-                      className="lt-image-pos-badge"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        cycleImagePosition(0);
-                      }}
-                      title="Ajuster le cadrage (haut / centre / bas)"
-                    >
-                      {posLabel(form.images[0])}
+                    <button className="lt-img-btn" onClick={() => setLightboxSrc(form.images[0].src)} title="Cliquer pour agrandir" aria-label="Agrandir la jaquette">
+                      <CoverImage src={form.images[0].src} />
                     </button>
                     <button className="lt-image-remove" onClick={() => removeImage(0)} title="Retirer" aria-label="Retirer la jaquette">
                       <X size={12} />
@@ -2103,22 +2353,8 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
                 {[1, 2].map((idx) =>
                   form.images[idx] ? (
                     <div key={idx} className="lt-shot-slot lt-shot-slot-filled">
-                      <img
-                        src={form.images[idx].src}
-                        alt={`Capture ${idx}`}
-                        style={{ objectPosition: posOf(form.images[idx]) }}
-                        onClick={() => setLightboxSrc(form.images[idx].src)}
-                        title="Cliquer pour agrandir"
-                      />
-                      <button
-                        className="lt-image-pos-badge"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          cycleImagePosition(idx);
-                        }}
-                        title="Ajuster le cadrage (haut / centre / bas)"
-                      >
-                        {posLabel(form.images[idx])}
+                      <button className="lt-img-btn" onClick={() => setLightboxSrc(form.images[idx].src)} title="Cliquer pour agrandir" aria-label={`Agrandir la capture ${idx}`}>
+                        <CoverImage src={form.images[idx].src} />
                       </button>
                       <button className="lt-image-remove" onClick={() => removeImage(idx)} title="Retirer" aria-label={`Retirer la capture ${idx}`}>
                         <X size={12} />
@@ -2133,7 +2369,7 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
                 )}
               </div>
               {form.images.some(Boolean) && (
-                <div className="lt-image-hint">Touche une image pour l'agrandir, le badge H/C/B pour recadrer.</div>
+                <div className="lt-image-hint">Touche une image pour l'agrandir. Elle est toujours affichée entière, sans recadrage.</div>
               )}
             </div>
           </div>
@@ -2164,22 +2400,8 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
                   <div className="lt-shots-row" style={{ marginTop: 8 }}>
                     {form.collectorImage ? (
                       <div className="lt-shot-slot lt-shot-slot-filled">
-                        <img
-                          src={form.collectorImage.src}
-                          alt="Contenu du collector"
-                          style={{ objectPosition: posOf(form.collectorImage) }}
-                          onClick={() => setLightboxSrc(form.collectorImage.src)}
-                          title="Cliquer pour agrandir"
-                        />
-                        <button
-                          className="lt-image-pos-badge"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            cycleCollectorImagePosition();
-                          }}
-                          title="Ajuster le cadrage (haut / centre / bas)"
-                        >
-                          {posLabel(form.collectorImage)}
+                        <button className="lt-img-btn" onClick={() => setLightboxSrc(form.collectorImage.src)} title="Cliquer pour agrandir" aria-label="Agrandir la photo du collector">
+                          <CoverImage src={form.collectorImage.src} />
                         </button>
                         <button className="lt-image-remove" onClick={removeCollectorImage} title="Retirer" aria-label="Retirer la photo du collector">
                           <X size={12} />
@@ -2281,14 +2503,12 @@ function ImportModal({ onClose, onImport }) {
         if (!title) return null;
         const ng = { id: uid(), title };
         if (mapping.console) ng.console = (row[mapping.console] || "").trim();
-        if (mapping.genre) ng.genre = (row[mapping.genre] || "").trim();
+        if (mapping.genre) {
+          const rawGenre = (row[mapping.genre] || "").trim();
+          ng.genre = harmonizeGenre(rawGenre) || rawGenre;
+        }
         if (mapping.year) ng.year = (row[mapping.year] || "").trim();
         if (mapping.status) ng.status = guessStatusKey(row[mapping.status]);
-        if (mapping.progression) {
-          const rawProgress = String(row[mapping.progression] || "").replace("%", "").trim();
-          let progression = parseInt(rawProgress, 10);
-          if (!isNaN(progression)) ng.progression = Math.max(0, Math.min(100, progression));
-        }
         if (mapping.synopsis) ng.synopsis = (row[mapping.synopsis] || "").trim();
         if (mapping.pegi) ng.pegi = (row[mapping.pegi] || "").trim();
         if (mapping.platinum) ng.platinum = parseBool(row[mapping.platinum]);
