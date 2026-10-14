@@ -250,13 +250,20 @@ function firstImage(g) {
   return null;
 }
 
+// Largeur maximale des images enregistrées (px). Au-delà, l'image est réduite ; en dessous, elle n'est jamais agrandie.
+const IMAGE_MAX_WIDTH = 640;
+const IMAGE_FORMATS = "JPG, PNG ou WebP";
+const COVER_HINT = `Idéal : ${IMAGE_MAX_WIDTH} × ${Math.round((IMAGE_MAX_WIDTH * 3) / 2)} px (portrait 2:3) · ${IMAGE_FORMATS}`;
+const SHOT_HINT = `Idéal : ${IMAGE_MAX_WIDTH} × ${Math.round((IMAGE_MAX_WIDTH * 9) / 16)} px (paysage 16:9) · ${IMAGE_FORMATS}`;
+const COLLECTOR_HINT = `Idéal : ${IMAGE_MAX_WIDTH} px de large, hauteur libre · ${IMAGE_FORMATS}`;
+
 function resizeImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const img = new window.Image();
       img.onload = () => {
-        const maxW = 640;
+        const maxW = IMAGE_MAX_WIDTH;
         const scale = Math.min(1, maxW / img.width);
         const w = Math.round(img.width * scale);
         const h = Math.round(img.height * scale);
@@ -904,6 +911,7 @@ const GLOBAL_CSS = `
           font-weight: 600;
         }
         .lt-shot-slot-add:hover { border-color: var(--gold); color: var(--gold); }
+        .lt-field-hint { font-size: 12px; color: var(--text-muted); margin: -2px 0 8px; line-height: 1.4; }
         .lt-image-hint {
           font-size: 11px;
           color: var(--text-muted);
@@ -2329,6 +2337,7 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
             <h3 className="lt-section-title">Images</h3>
             <div className="lt-field">
               <label>Jaquette</label>
+              <div className="lt-field-hint">{COVER_HINT}</div>
               <div className="lt-images-row">
                 {form.images[0] ? (
                   <div className="lt-image-slot lt-image-slot-filled lt-image-slot-cover">
@@ -2349,6 +2358,7 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
 
             <div className="lt-field">
               <label>Captures d'écran</label>
+              <div className="lt-field-hint">{SHOT_HINT}</div>
               <div className="lt-shots-row">
                 {[1, 2].map((idx) =>
                   form.images[idx] ? (
@@ -2368,9 +2378,9 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
                   )
                 )}
               </div>
-              {form.images.some(Boolean) && (
-                <div className="lt-image-hint">Touche une image pour l'agrandir. Elle est toujours affichée entière, sans recadrage.</div>
-              )}
+              <div className="lt-image-hint">
+                Plus large que {IMAGE_MAX_WIDTH} px ? Elle est réduite automatiquement (jamais agrandie). Elle s'affiche toujours entière, sans recadrage ; un fond transparent devient noir. Touche-la pour l'agrandir.
+              </div>
             </div>
           </div>
 
@@ -2388,6 +2398,7 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
               </button>
               {form.collector && (
                 <div className="lt-collector-block">
+                  <div className="lt-field-hint" style={{ marginTop: 10 }}>Photo du contenu : {COLLECTOR_HINT}</div>
                   <textarea
                     className="lt-textarea-auto"
                     placeholder="Contenu du collector : steelbook, artbook, figurine…"
