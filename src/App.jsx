@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail, MoreHorizontal, SlidersHorizontal, ChevronLeft, Library, LayoutGrid, ChevronDown, ChevronsUpDown, ChevronsDownUp, Tags } from "lucide-react";
+import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail, MoreHorizontal, SlidersHorizontal, ChevronLeft, Library, LayoutGrid, ChevronDown, ChevronsUpDown, ChevronsDownUp, Tags, KeyRound } from "lucide-react";
 import Papa from "papaparse";
 import { supabase, supabaseConfigured } from "./supabaseClient.js";
 import { fetchAllGames, pushChanges } from "./cloud.js";
@@ -561,7 +561,21 @@ const GLOBAL_CSS = `
         }
         .lt-login-card input:focus { border-color: var(--gold); }
         .lt-login-card .lt-add-btn { margin-left: 0; justify-content: center; }
-        .lt-login-error { color: #E07A67; font-size: 12px; }
+        .lt-login-error { color: #E07A67; font-size: 13px; line-height: 1.4; }
+        .lt-login-form { display: flex; flex-direction: column; gap: 12px; }
+        .lt-login-tabs { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+        .lt-login-tabs button { flex: 1; min-height: 44px; padding: 10px; background: none; border: none; color: var(--text-muted); font-size: 13px; font-weight: 600; cursor: pointer; }
+        .lt-login-tabs button + button { border-left: 1px solid var(--border); }
+        .lt-login-tabs button.on { background: var(--surface2); color: var(--gold); }
+        .lt-login-link { background: none; border: none; padding: 6px 0; color: var(--text-muted); font-size: 12px; text-decoration: underline; text-align: left; cursor: pointer; }
+        .lt-login-link:disabled { opacity: 0.5; text-decoration: none; cursor: default; }
+        .lt-login-row { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+        .lt-login-card input.lt-login-code { text-align: center; letter-spacing: 6px; font-size: 22px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+        .lt-login-card input.lt-login-code::placeholder { letter-spacing: normal; font-size: 15px; font-family: inherit; }
+        .lt-pw-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .lt-pw-actions .lt-add-btn { flex: 1; }
+        .lt-visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        .lt-menu-info { padding: 8px 12px 6px; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .lt-login-sent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.5; }
         .lt-toggle-active { border-color: var(--gold); color: var(--gold); }
         .lt-spine {
@@ -1283,6 +1297,7 @@ function Ludotheque({ user, onSignOut }) {
   const [groupByConsole, setGroupByConsole] = useState(() => loadViewPrefs().group);
   const [collapsed, setCollapsed] = useState(() => new Set(loadViewPrefs().collapsed)); // clés « m:Sony » / « c:ps3 »
   const [notice, setNotice] = useState(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const backupInputRef = useRef(null);
   const saveTimer = useRef(null);
@@ -1490,7 +1505,7 @@ function Ludotheque({ user, onSignOut }) {
     setSortBy("title");
   }
 
-  useScrollLock(!!(selected || creating || importing || pickedGame));
+  useScrollLock(!!(selected || creating || importing || pickedGame || passwordOpen));
 
   useEffect(() => {
     try {
@@ -1696,6 +1711,7 @@ function Ludotheque({ user, onSignOut }) {
           </div>
           <MoreMenu
             items={[
+              ...(user && user.email ? [{ info: user.email }] : []),
               ...(groupByConsole
                 ? [
                     allCollapsed
@@ -1704,6 +1720,7 @@ function Ludotheque({ user, onSignOut }) {
                   ]
                 : []),
               { label: "Harmoniser les genres", icon: <Tags size={16} />, onClick: harmonizeNow },
+              { label: "Mot de passe", icon: <KeyRound size={16} />, onClick: () => setPasswordOpen(true) },
               { divider: true },
               { label: "Importer un CSV", icon: <Upload size={16} />, onClick: () => setImporting(true) },
               { label: "Exporter une sauvegarde", icon: <Download size={16} />, onClick: exportBackup },
@@ -1855,6 +1872,17 @@ function Ludotheque({ user, onSignOut }) {
         <ImportModal onClose={() => setImporting(false)} onImport={importGames} />
       )}
 
+      {passwordOpen && (
+        <PasswordModal
+          email={user && user.email}
+          onClose={() => setPasswordOpen(false)}
+          onDone={() => {
+            setPasswordOpen(false);
+            setNotice("Mot de passe enregistré : tu peux maintenant te connecter avec dans le raccourci.");
+          }}
+        />
+      )}
+
       {notice && (
         <div className="lt-toast" role="status">
           <span>{notice}</span>
@@ -1957,7 +1985,9 @@ function MoreMenu({ items }) {
       {open && (
         <div className="lt-menu" role="menu">
           {items.map((it, i) =>
-            it.divider ? (
+            it.info ? (
+              <div key={i} className="lt-menu-info">{it.info}</div>
+            ) : it.divider ? (
               <hr key={i} />
             ) : (
               <button
@@ -2628,62 +2658,310 @@ function ImportModal({ onClose, onImport }) {
   );
 }
 
-function LoginScreen() {
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState("idle"); // idle | sending | sent | error
-  const [errorMsg, setErrorMsg] = useState("");
+// ---- Connexion : tout se passe dans l'app (mot de passe ou code par email), sans lien qui ouvre Safari ----
+const PENDING_KEY = "ludotheque-login-pending";
+const OTP_COOLDOWN = 60; // Supabase : un code toutes les 60 s au maximum
 
-  async function submit(e) {
+function readPendingLogin() {
+  try {
+    const v = JSON.parse(localStorage.getItem(PENDING_KEY) || "null");
+    if (v && v.email && Date.now() - v.sentAt < 55 * 60 * 1000) return v;
+  } catch (e) {
+    /* ignore */
+  }
+  return null;
+}
+
+function authErrorMessage(err) {
+  const m = (err && err.message) || "";
+  if (/invalid login credentials/i.test(m)) return "Email ou mot de passe incorrect. Pas encore de mot de passe ? Utilise « Code par email ».";
+  if (/different from the old/i.test(m)) return "C'est déjà ton mot de passe actuel : choisis-en un autre.";
+  if (/weak|pwned|easy to guess|known to be/i.test(m)) return "Mot de passe trop faible ou déjà compromis : choisis-en un autre.";
+  if (/at least \d+ characters|too short/i.test(m)) return "Mot de passe trop court.";
+  if (/rate limit|only request this after|too many/i.test(m)) return "Trop de demandes : attends une minute (ou une heure si tu as demandé beaucoup de codes), puis réessaie.";
+  if (/signups? not allowed|user not found/i.test(m)) return "Aucun compte avec cet email.";
+  if (/expired|invalid/i.test(m)) return "Code invalide ou expiré. Redemande un code.";
+  if (/failed to fetch|network/i.test(m)) return "Pas de connexion. Réessaie.";
+  return m || "Une erreur est survenue.";
+}
+
+function LoginScreen() {
+  const pending = readPendingLogin(); // l'app a pu être relancée pendant que tu lisais le mail
+  const [tab, setTab] = useState(pending ? "code" : "password");
+  const [email, setEmail] = useState(pending ? pending.email : "");
+  const [password, setPassword] = useState("");
+  const [codeSent, setCodeSent] = useState(!!pending);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [cooldown, setCooldown] = useState(() => (pending ? Math.max(0, OTP_COOLDOWN - Math.floor((Date.now() - pending.sentAt) / 1000)) : 0));
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  function switchTab(next) {
+    setTab(next);
+    setError("");
+  }
+
+  async function signInWithPassword(e) {
     e.preventDefault();
-    if (!email.trim()) return;
-    setStatus("sending");
-    setErrorMsg("");
-    const { error } = await supabase.auth.signInWithOtp({
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    setBusy(false);
+    if (err) setError(authErrorMessage(err)); // sinon : onAuthStateChange affiche l'app
+  }
+
+  async function sendCode(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (busy || !email.trim() || cooldown > 0) return;
+    setBusy(true);
+    setError("");
+    const { error: err } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
     });
-    if (error) {
-      setStatus("error");
-      setErrorMsg(error.message);
-    } else {
-      setStatus("sent");
+    setBusy(false);
+    if (err) {
+      setError(authErrorMessage(err));
+      return;
+    }
+    try {
+      localStorage.setItem(PENDING_KEY, JSON.stringify({ email: email.trim(), sentAt: Date.now() }));
+    } catch (e2) {
+      /* ignore */
+    }
+    setCodeSent(true);
+    setCode("");
+    setCooldown(OTP_COOLDOWN);
+  }
+
+  async function verifyCode(e) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    const { error: err } = await supabase.auth.verifyOtp({ email: email.trim(), token: code, type: "email" });
+    setBusy(false);
+    if (err) {
+      setError(authErrorMessage(err));
+      return;
+    }
+    try {
+      localStorage.removeItem(PENDING_KEY);
+    } catch (e2) {
+      /* ignore */
     }
   }
+
+  function changeEmail() {
+    try {
+      localStorage.removeItem(PENDING_KEY);
+    } catch (e2) {
+      /* ignore */
+    }
+    setCodeSent(false);
+    setCode("");
+    setError("");
+    setCooldown(0);
+  }
+
+  const emailInput = (
+    <input
+      type="email"
+      name="email"
+      autoComplete="username"
+      inputMode="email"
+      autoCapitalize="none"
+      autoCorrect="off"
+      required
+      placeholder="ton@email.com"
+      value={email}
+      onChange={(e) => setEmail(e.target.value)}
+    />
+  );
 
   return (
     <div className="lt-root">
       <style>{GLOBAL_CSS}</style>
       <div className="lt-login-wrap">
-        <form className="lt-login-card" onSubmit={submit}>
+        <div className="lt-login-card">
           <h1>
             <Gamepad2 size={24} color="#D4AF37" /> Ma ludothèque
           </h1>
-          {status === "sent" ? (
-            <div className="lt-login-sent">
-              <Mail size={18} color="#D4AF37" style={{ flexShrink: 0, marginTop: 2 }} />
-              <span>
-                Lien envoyé à <b>{email}</b>. Ouvre ce mail (pense aux spams) et clique sur le lien : tu seras connectée.
-              </span>
-            </div>
-          ) : (
-            <>
-              <p>Connecte-toi par email pour retrouver ta collection sur tous tes appareils. Pas de mot de passe : je t'envoie un lien.</p>
+          <div className="lt-login-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={tab === "password"} className={tab === "password" ? "on" : ""} onClick={() => switchTab("password")}>
+              Mot de passe
+            </button>
+            <button type="button" role="tab" aria-selected={tab === "code"} className={tab === "code" ? "on" : ""} onClick={() => switchTab("code")}>
+              Code par email
+            </button>
+          </div>
+
+          {tab === "password" && (
+            <form className="lt-login-form" onSubmit={signInWithPassword}>
+              {emailInput}
               <input
-                type="email"
+                type="password"
+                name="password"
+                autoComplete="current-password"
                 required
-                autoFocus
-                placeholder="ton@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Mot de passe"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
-              <button type="submit" className="lt-add-btn" disabled={status === "sending"}>
-                {status === "sending" ? "Envoi…" : "Recevoir le lien de connexion"}
+              <button type="submit" className="lt-add-btn" disabled={busy}>
+                {busy ? "Connexion…" : "Se connecter"}
               </button>
-              {status === "error" && <div className="lt-login-error">{errorMsg}</div>}
-            </>
+              <button type="button" className="lt-login-link" onClick={() => switchTab("code")}>
+                Pas encore de mot de passe ? Reçois un code par email
+              </button>
+            </form>
           )}
-        </form>
+
+          {tab === "code" && !codeSent && (
+            <form className="lt-login-form" onSubmit={sendCode}>
+              <p>On t'envoie un code à saisir ici : tu restes dans l'app, sans passer par Safari.</p>
+              {emailInput}
+              <button type="submit" className="lt-add-btn" disabled={busy}>
+                {busy ? "Envoi…" : "Recevoir un code"}
+              </button>
+            </form>
+          )}
+
+          {tab === "code" && codeSent && (
+            <form className="lt-login-form" onSubmit={verifyCode}>
+              <p>
+                Code envoyé à <b>{email}</b>. Ouvre le mail (pense aux spams), puis reviens ici et saisis-le.
+              </p>
+              <input
+                className="lt-login-code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={10}
+                required
+                placeholder="Code"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              />
+              <button type="submit" className="lt-add-btn" disabled={busy || code.length < 6}>
+                {busy ? "Vérification…" : "Se connecter"}
+              </button>
+              <div className="lt-login-row">
+                <button type="button" className="lt-login-link" onClick={sendCode} disabled={cooldown > 0 || busy}>
+                  {cooldown > 0 ? `Renvoyer le code (${cooldown} s)` : "Renvoyer le code"}
+                </button>
+                <button type="button" className="lt-login-link" onClick={changeEmail}>
+                  Changer d'email
+                </button>
+              </div>
+            </form>
+          )}
+
+          {error && (
+            <div className="lt-login-error" role="alert">
+              {error}
+            </div>
+          )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+// Définir / changer son mot de passe (Supabase peut exiger une ré-authentification par code email)
+function PasswordModal({ email, onClose, onDone }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [nonce, setNonce] = useState("");
+  const [step, setStep] = useState("form"); // form | reauth
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    setError("");
+    if (pw.length < 8) return setError("8 caractères minimum.");
+    if (pw !== pw2) return setError("Les deux mots de passe ne correspondent pas.");
+    setBusy(true);
+    const payload = step === "reauth" ? { password: pw, nonce: nonce.trim() } : { password: pw };
+    const { error: err } = await supabase.auth.updateUser(payload);
+    if (err && step === "form" && /reauthentication/i.test(err.message || "")) {
+      const r = await supabase.auth.reauthenticate();
+      setBusy(false);
+      if (r.error) return setError(authErrorMessage(r.error));
+      setStep("reauth");
+      return;
+    }
+    setBusy(false);
+    if (err) return setError(authErrorMessage(err));
+    onDone();
+  }
+
+  return (
+    <div className="lt-overlay" onClick={onClose}>
+      <form className="lt-login-card" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Mot de passe">
+        <h1 style={{ fontSize: 18 }}>
+          <KeyRound size={20} color="#D4AF37" /> Mot de passe
+        </h1>
+        <p>Avec un mot de passe, tu te connectes directement dans le raccourci de ton iPhone (le trousseau iCloud le remplit), sans lien par email. 8 caractères minimum.</p>
+        <input type="email" name="email" autoComplete="username" value={email} readOnly tabIndex={-1} aria-hidden="true" className="lt-visually-hidden" />
+        <input
+          type="password"
+          name="new-password"
+          autoComplete="new-password"
+          placeholder="Nouveau mot de passe"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          autoFocus
+        />
+        <input type="password" name="confirm-password" autoComplete="new-password" placeholder="Confirme le mot de passe" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+        {step === "reauth" && (
+          <>
+            <p>Par sécurité, un code vient de t'être envoyé par email. Saisis-le pour confirmer le changement.</p>
+            <input
+              className="lt-login-code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]*"
+              maxLength={10}
+              placeholder="Code"
+              value={nonce}
+              onChange={(e) => setNonce(e.target.value.replace(/\D/g, ""))}
+            />
+          </>
+        )}
+        {error && (
+          <div className="lt-login-error" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="lt-pw-actions">
+          <button type="button" className="lt-btn" onClick={onClose}>
+            Annuler
+          </button>
+          <button type="submit" className="lt-add-btn" disabled={busy}>
+            {busy ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -45,9 +45,26 @@ Vercel redéploie automatiquement la nouvelle version en quelques dizaines de se
 3. Variables d'environnement `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` :
    - en local : fichier `.env.local` (voir `.env.example`, non versionné)
    - sur Vercel : Settings > Environment Variables, puis redéployer.
-4. Une fois ton compte créé (premier lien magique), désactive les inscriptions : Authentication > Sign In / Providers > "Allow new users to sign up".
+4. Une fois ton compte créé, désactive les inscriptions : Authentication > Sign In / Providers > "Allow new users to sign up".
 
 Au premier lancement connecté, les données déjà présentes dans le navigateur (version d'avant la synchro) sont fusionnées une seule fois dans le cloud (le cloud gagne en cas d'id identique).
+
+## Connexion (raccourci iPhone inclus)
+
+Le lien magique ouvre Safari, pas le raccourci plein écran de l'iPhone : on s'y connectait donc... dans Safari. La connexion se fait maintenant **dans l'app**, de deux façons :
+
+- **Mot de passe** : à définir une fois depuis le menu « ⋯ » > « Mot de passe » (depuis un appareil déjà connecté). Le trousseau iCloud le remplit ensuite. Si Supabase exige une ré-authentification, l'app demande un code reçu par email.
+- **Code par email** : l'app envoie un code (6 à 10 chiffres selon ton projet) à saisir dans la page. Si l'app est relancée pendant que tu lis le mail, elle reprend à l'étape du code.
+
+Pour que le code apparaisse dans l'email : Supabase > Authentication > Email Templates > **Magic Link**, et ajoute `{{ .Token }}` au corps du message. Exemple (code + lien) :
+
+```html
+<h2>Ta connexion à Ma ludothèque</h2>
+<p>Ton code : <strong style="font-size:22px;letter-spacing:4px">{{ .Token }}</strong></p>
+<p>Ou, dans ton navigateur : <a href="{{ .ConfirmationURL }}">clique ici</a>.</p>
+```
+
+Notes : un code toutes les 60 s au maximum ; l'envoi d'emails intégré à Supabase est limité en nombre par heure (pas gênant : une fois connecté, la session reste ouverte).
 
 ## Important à savoir
 
