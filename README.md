@@ -66,6 +66,22 @@ Pour que le code apparaisse dans l'email : Supabase > Authentication > Email Tem
 
 Notes : un code toutes les 60 s au maximum ; l'envoi d'emails intégré à Supabase est limité en nombre par heure (pas gênant : une fois connecté, la session reste ouverte).
 
+## Copie locale et consommation Supabase
+
+Le forfait gratuit de Supabase limite le **transfert sortant** (5 Go par mois). Avant, chaque ouverture de l'app (et chaque retour sur l'onglet après 30 s) retéléchargeait toute la collection, images comprises : quelques dizaines de Mo à chaque fois, soit le quota dépassé en quelques semaines.
+
+Maintenant :
+
+- une **copie locale** (IndexedDB) garde la collection sur l'appareil : l'app s'ouvre instantanément, même sans réseau ;
+- à chaque ouverture, l'app ne lit que la liste « id + date de modification » de chaque jeu (~60 octets par jeu, soit une quinzaine de Ko pour 260 jeux) et ne télécharge que les fiches **réellement modifiées** ailleurs ;
+- tes propres modifications ne sont jamais retéléchargées ;
+- les modifications faites **hors ligne** restent sur l'appareil et partent toutes seules au retour du réseau ;
+- si le chargement échoue et qu'aucune copie locale n'existe, un message clair s'affiche (jamais une étagère vide).
+
+Le premier lancement sur chaque appareil télécharge toute la collection une fois (barre de progression). Un raccourci « écran d'accueil » et Safari ont chacun leur propre copie. Le menu « ⋯ » > « Recharger toute la collection » force un nouveau téléchargement complet si besoin.
+
+Suivi : Supabase > Organisation > Usage > « Egress ». Si le quota gratuit est dépassé, Supabase prévient puis peut restreindre l'API (erreurs 402) jusqu'à la remise à zéro du cycle de facturation ; les données ne sont pas supprimées.
+
 ## Important à savoir
 
 - Un jeu = une ligne en base ; seuls les jeux modifiés sont envoyés.

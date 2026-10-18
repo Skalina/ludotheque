@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail, MoreHorizontal, SlidersHorizontal, ChevronLeft, Library, LayoutGrid, ChevronDown, ChevronsUpDown, ChevronsDownUp, Tags, KeyRound } from "lucide-react";
+import { Search, Plus, X, Trash2, Gamepad2, Upload, ArrowRight, Check, Trophy, Image as ImageIcon, Dices, Download, Star, Layers, LogOut, Mail, MoreHorizontal, SlidersHorizontal, ChevronLeft, Library, LayoutGrid, ChevronDown, ChevronsUpDown, ChevronsDownUp, Tags, KeyRound, RefreshCw } from "lucide-react";
 import Papa from "papaparse";
 import { supabase, supabaseConfigured } from "./supabaseClient.js";
-import { fetchAllGames, pushChanges } from "./cloud.js";
+import { fetchStamps, fetchGamesByIds, pushChanges, diffGames } from "./cloud.js";
+import { openCache } from "./cache.js";
 
 const STATUS = {
   backlog: { label: "À faire", color: "#7A7264" },
@@ -641,6 +642,9 @@ const GLOBAL_CSS = `
           color: var(--text-muted);
         }
         .lt-empty b { color: var(--text); }
+        .lt-progress { height: 6px; max-width: 260px; margin: 14px auto 10px; border-radius: 3px; background: var(--border); overflow: hidden; }
+        .lt-progress span { display: block; height: 100%; background: var(--gold); transition: width 0.2s ease; }
+        .lt-empty-sub { font-size: 12px; }
         .lt-overlay {
           position: fixed;
           inset: 0;
@@ -1302,33 +1306,76 @@ function Ludotheque({ user, onSignOut }) {
   const backupInputRef = useRef(null);
   const saveTimer = useRef(null);
 
-  const syncedRef = useRef(new Map()); // id -> objet jeu tel qu'il est dans le cloud
+  const syncedRef = useRef(new Map()); // id -> fiche telle qu'elle est dans le cloud
+  const stampsRef = useRef(new Map()); // id -> date de dernière modification connue côté cloud
+  const cachedRef = useRef(new Map()); // id -> fiche actuellement écrite dans la copie locale
+  const cacheRef = useRef(null);
+  const cacheTimer = useRef(null);
   const latestRef = useRef([]);
   const pendingRef = useRef(false);
   const syncingRef = useRef(false);
   const dirtyRef = useRef(false);
+  const refreshingRef = useRef(false);
+  const refreshAfterSyncRef = useRef(false);
+  const loadedOnceRef = useRef(false); // le cloud a été lu avec succès au moins une fois pendant cette session
   const flagsAfterSyncRef = useRef([]); // clés localStorage à poser une fois l'envoi cloud réussi
   const lastFetchRef = useRef(0);
   const [syncError, setSyncError] = useState(false);
+  const [loadState, setLoadState] = useState("loading"); // loading | ready | error
+  const [download, setDownload] = useState(null); // { done, total } pendant un gros téléchargement
 
   const MIGRATED_KEY = "ludotheque-migrated";
 
+  // ---- Copie locale : on n'écrit que ce qui a changé, et on note ce qui n'est pas encore parti vers le cloud ----
+  function writeCache() {
+    clearTimeout(cacheTimer.current);
+    cacheTimer.current = setTimeout(flushCache, 300);
+  }
+
+  async function flushCache() {
+    const cache = cacheRef.current;
+    if (!cache || !cache.available) return;
+    const next = latestRef.current;
+    const have = cachedRef.current;
+    const ids = new Set(next.map((g) => g.id));
+    const put = next.filter((g) => have.get(g.id) !== g);
+    const remove = Array.from(have.keys()).filter((id) => !ids.has(id));
+    const { changed, removed } = diffGames(syncedRef.current, next);
+    try {
+      await cache.write({
+        put,
+        remove,
+        meta: { dirty: changed.map((g) => g.id), deleted: removed, stamps: Array.from(stampsRef.current) },
+      });
+      put.forEach((g) => have.set(g.id, g));
+      remove.forEach((id) => have.delete(id));
+    } catch (e) {
+      console.warn("Écriture de la copie locale impossible", e);
+    }
+  }
+
+  // ---- Envoi vers le cloud ----
   async function syncNow() {
     if (syncingRef.current) {
       dirtyRef.current = true;
       return;
     }
     syncingRef.current = true;
+    let ok = false;
     try {
       do {
         dirtyRef.current = false;
-        await pushChanges(supabase, user.id, syncedRef.current, latestRef.current);
+        const res = await pushChanges(supabase, user.id, syncedRef.current, latestRef.current);
+        res.stamps.forEach((ms, id) => stampsRef.current.set(id, ms));
+        res.removedIds.forEach((id) => stampsRef.current.delete(id));
       } while (dirtyRef.current);
       pendingRef.current = false;
       setSyncError(false);
       setSaving(false);
       flagsAfterSyncRef.current.forEach((k) => localStorage.setItem(k, "1"));
       flagsAfterSyncRef.current = [];
+      writeCache();
+      ok = true;
     } catch (e) {
       console.error("Erreur de synchro", e);
       setSyncError(true);
@@ -1338,6 +1385,10 @@ function Ludotheque({ user, onSignOut }) {
     } finally {
       syncingRef.current = false;
     }
+    if (ok && refreshAfterSyncRef.current) {
+      refreshAfterSyncRef.current = false;
+      setTimeout(() => refreshFromCloud(), 50);
+    }
   }
 
   function persist(next) {
@@ -1345,60 +1396,130 @@ function Ludotheque({ user, onSignOut }) {
     pendingRef.current = true;
     setGames(next);
     setSaving(true);
+    writeCache();
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(syncNow, 600);
   }
 
-  // Chargement initial depuis le cloud (+ migration unique des données locales d'avant la synchro)
+  // ---- Lecture du cloud : on ne télécharge que les fiches dont la date de modification a changé ----
+  // Fusionne l'état du cloud dans l'état local (appelé seulement quand aucune modification locale n'est en attente).
+  function adoptCloud(fetched, remote) {
+    const raw = new Map(syncedRef.current);
+    fetched.forEach(({ game }) => raw.set(game.id, game));
+    Array.from(raw.keys()).forEach((id) => {
+      if (!remote.has(id)) raw.delete(id);
+    });
+    const stamps = new Map(remote);
+    fetched.forEach(({ game, stamp }) => stamps.set(game.id, stamp));
+    stampsRef.current = stamps;
+
+    const rawList = Array.from(raw.values());
+    let list = rawList.map(normalizeGame);
+    if (!localStorage.getItem(GENRES_KEY)) {
+      // Harmonisation unique des genres existants (une fois par appareil)
+      const h = harmonizeGames(list);
+      if (h.changed) {
+        list = h.list;
+        flagsAfterSyncRef.current.push(GENRES_KEY);
+        setNotice(`Genres harmonisés : ${h.changed} jeu${h.changed > 1 ? "x" : ""} mis à jour.`);
+      } else {
+        localStorage.setItem(GENRES_KEY, "1");
+      }
+    }
+    syncedRef.current = raw;
+    latestRef.current = list;
+    setGames(list);
+    if (list.some((g, i) => g !== rawList[i])) persist(list); // anciens « Envie » -> « À faire » + genres, renvoyés au cloud
+    else writeCache();
+  }
+
+  async function refreshFromCloud({ force = false } = {}) {
+    if (refreshingRef.current || pendingRef.current || syncingRef.current) return;
+    refreshingRef.current = true;
+    try {
+      if (force) stampsRef.current = new Map();
+      const remote = await fetchStamps(supabase); // quelques Ko pour toute la collection
+      const known = stampsRef.current;
+      const toFetch = Array.from(remote.keys()).filter((id) => known.get(id) !== remote.get(id) || !syncedRef.current.has(id));
+      const removedAny = Array.from(syncedRef.current.keys()).some((id) => !remote.has(id));
+      if (toFetch.length > 8) setDownload({ done: 0, total: toFetch.length });
+      const fetched = toFetch.length ? await fetchGamesByIds(supabase, toFetch, (done) => setDownload((d) => (d ? { ...d, done } : d))) : [];
+      if (pendingRef.current || syncingRef.current) return; // une modification locale est partie pendant ce temps : on réessaiera
+      lastFetchRef.current = Date.now();
+      if (fetched.length || removedAny || !loadedOnceRef.current) adoptCloud(fetched, remote);
+      loadedOnceRef.current = true;
+      setSyncError(false);
+      setLoadState("ready");
+    } catch (e) {
+      console.error("Erreur de synchro (lecture)", e);
+      const hasData = latestRef.current.length > 0 || stampsRef.current.size > 0;
+      if (hasData || loadedOnceRef.current) setSyncError(true); // on garde la copie locale à l'écran
+      else setLoadState("error"); // rien à afficher : message clair plutôt qu'une étagère vide
+    } finally {
+      refreshingRef.current = false;
+      setDownload(null);
+    }
+  }
+
+  // Fusion unique des données d'avant la synchro (stockées dans le navigateur) : on n'ajoute que les jeux absents du cloud.
+  function mergeLegacyLocal() {
+    if (localStorage.getItem(MIGRATED_KEY)) return;
+    let local = [];
+    try {
+      const raw = localStorage.getItem("ludotheque-games");
+      local = raw ? JSON.parse(raw) : [];
+    } catch (err) {
+      local = [];
+    }
+    const current = latestRef.current;
+    const ids = new Set(current.map((g) => g.id));
+    const toMerge = (Array.isArray(local) ? local : []).map((g) => normalizeGame({ ...g, id: g.id || uid() })).filter((g) => !ids.has(g.id));
+    if (toMerge.length) {
+      flagsAfterSyncRef.current.push(MIGRATED_KEY); // posé seulement une fois l'envoi réussi
+      persist([...current, ...harmonizeGames(toMerge).list]);
+    } else {
+      localStorage.setItem(MIGRATED_KEY, "1");
+    }
+  }
+
+  // Démarrage : copie locale d'abord (affichage immédiat, même hors ligne), puis mise à jour légère depuis le cloud
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const cache = await openCache(user.id);
+      if (cancelled) return;
+      cacheRef.current = cache;
+      let stored = { games: [], meta: {} };
       try {
-        const cloud = await fetchAllGames(supabase);
-        if (cancelled) return;
-        lastFetchRef.current = Date.now();
-        let list = cloud.map(normalizeGame);
-        if (!localStorage.getItem(GENRES_KEY)) {
-          // Harmonisation unique des genres existants (une fois par appareil)
-          const h = harmonizeGames(list);
-          if (h.changed) {
-            list = h.list;
-            flagsAfterSyncRef.current.push(GENRES_KEY);
-            setNotice(`Genres harmonisés : ${h.changed} jeu${h.changed > 1 ? "x" : ""} mis à jour.`);
-          } else {
-            localStorage.setItem(GENRES_KEY, "1");
-          }
-        }
-        syncedRef.current = new Map(cloud.map((g) => [g.id, g]));
-        latestRef.current = list;
-        setGames(list);
-        if (list.some((g, i) => g !== cloud[i])) persist(list); // anciens « Envie » -> « À faire » + genres, envoyés au cloud
-        if (!localStorage.getItem(MIGRATED_KEY)) {
-          // Fusion unique des données locales d'avant la synchro : on n'ajoute que les jeux absents du cloud.
-          let local = [];
-          try {
-            const raw = localStorage.getItem("ludotheque-games");
-            local = raw ? JSON.parse(raw) : [];
-          } catch (err) {
-            local = [];
-          }
-          const cloudIds = new Set(cloud.map((g) => g.id));
-          const toMerge = (Array.isArray(local) ? local : [])
-            .map((g) => normalizeGame({ ...g, id: g.id || uid() }))
-            .filter((g) => !cloudIds.has(g.id));
-          if (toMerge.length) {
-            flagsAfterSyncRef.current.push(MIGRATED_KEY); // posé seulement une fois l'envoi réussi
-            persist([...list, ...harmonizeGames(toMerge).list]);
-          } else {
-            localStorage.setItem(MIGRATED_KEY, "1");
-          }
-        }
+        stored = await cache.load();
       } catch (e) {
-        console.error("Erreur de chargement", e);
-        if (!cancelled) {
-          setSyncError(true);
-          setGames([]);
-        }
+        console.warn("Lecture de la copie locale impossible", e);
+      }
+      if (cancelled) return;
+      const dirty = new Set(stored.meta.dirty || []);
+      const deleted = stored.meta.deleted || [];
+      stampsRef.current = new Map(stored.meta.stamps || []);
+      cachedRef.current = new Map(stored.games.map((g) => [g.id, g]));
+      // Base « état du cloud » : les fiches non modifiées localement ; les modifs/suppressions non envoyées en sont absentes pour repartir au prochain envoi
+      const synced = new Map();
+      stored.games.forEach((g) => {
+        if (!dirty.has(g.id)) synced.set(g.id, g);
+      });
+      deleted.forEach((id) => synced.set(id, { id }));
+      syncedRef.current = synced;
+      latestRef.current = stored.games;
+      if (stored.games.length > 0 || stampsRef.current.size > 0) {
+        setGames(stored.games);
+        setLoadState("ready");
+      }
+      if (dirty.size > 0 || deleted.length > 0) {
+        pendingRef.current = true; // des modifications faites hors ligne attendent d'être envoyées
+        refreshAfterSyncRef.current = true;
+        setSaving(true);
+        saveTimer.current = setTimeout(syncNow, 300);
+      } else {
+        await refreshFromCloud();
+        if (!cancelled && loadedOnceRef.current) mergeLegacyLocal();
       }
     })();
     return () => {
@@ -1406,29 +1527,30 @@ function Ludotheque({ user, onSignOut }) {
     };
   }, []);
 
-  // Récupère les modifs faites depuis un autre appareil quand on revient sur l'onglet
+  // Retour sur l'onglet / retour du réseau : mise à jour légère (comparaison de dates) ou reprise de l'envoi
   useEffect(() => {
-    async function onVisible() {
-      if (document.visibilityState !== "visible") return;
-      if (pendingRef.current || syncingRef.current) return;
-      if (Date.now() - lastFetchRef.current < 30000) return;
-      try {
-        const cloud = await fetchAllGames(supabase);
-        if (pendingRef.current || syncingRef.current) return; // une modif locale est partie entre-temps
-        lastFetchRef.current = Date.now();
-        const list = cloud.map(normalizeGame);
-        syncedRef.current = new Map(cloud.map((g) => [g.id, g]));
-        latestRef.current = list;
-        setGames(list);
-        setSyncError(false);
-        if (list.some((g, i) => g !== cloud[i])) persist(list);
-      } catch (e) {
-        console.error("Erreur de rafraîchissement", e);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastFetchRef.current > 30000) refreshFromCloud();
+    };
+    const onOnline = () => {
+      if (pendingRef.current) {
+        clearTimeout(saveTimer.current);
+        syncNow();
+      } else {
+        refreshFromCloud();
       }
-    }
+    };
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
   }, []);
+
+  function reloadAll() {
+    if (window.confirm("Retélécharger toute la collection depuis le cloud ? Ça peut représenter plusieurs dizaines de Mo de données.")) refreshFromCloud({ force: true });
+  }
 
   function upsertGame(game) {
     const exists = games.some((g) => g.id === game.id);
@@ -1442,27 +1564,58 @@ function Ludotheque({ user, onSignOut }) {
   }
 
   function importGames(newGames) {
-    const byTitle = new Map(games.map((g) => [g.title.trim().toLowerCase(), g]));
+    // Un jeu est le même s'il a le même titre ET la même console (un même titre sur PS4 et PS5 = deux fiches).
+    const norm = (t) => String(t || "").trim().toLowerCase();
     const merged = [...games];
+    const position = new Map(merged.map((g, i) => [g.id, i]));
+    const byTitle = new Map(); // titre -> [ids]
+    const byTitleConsole = new Map(); // titre|console -> id
+    const register = (g) => {
+      const t = norm(g.title);
+      if (!byTitle.has(t)) byTitle.set(t, []);
+      byTitle.get(t).push(g.id);
+      if (g.console) byTitleConsole.set(t + "|" + consoleInfo(g.console).key, g.id);
+    };
+    merged.forEach(register);
+    const patch = (id, ng) => {
+      const i = position.get(id);
+      const patched = { ...merged[i] };
+      Object.keys(ng).forEach((k) => {
+        if (k === "id") return;
+        const val = ng[k];
+        const isEmpty = val === "" || val === null || (Array.isArray(val) && val.length === 0);
+        if (!isEmpty) patched[k] = val;
+      });
+      merged[i] = patched;
+    };
     let updated = 0;
     let added = 0;
     newGames.forEach((ng) => {
-      const key = ng.title.trim().toLowerCase();
-      const existing = byTitle.get(key);
-      if (existing) {
-        const idx = merged.findIndex((g) => g.id === existing.id);
-        // On ne remplace un champ existant que si le nouveau n'est pas vide, pour ne pas écraser des retouches manuelles
-        const patched = { ...existing };
-        Object.keys(ng).forEach((k) => {
-          if (k === "id") return;
-          const val = ng[k];
-          const isEmpty = val === "" || val === null || (Array.isArray(val) && val.length === 0);
-          if (!isEmpty) patched[k] = val;
-        });
-        merged[idx] = patched;
-        updated++;
+      const t = norm(ng.title);
+      const hasConsole = !!(ng.console && String(ng.console).trim());
+      let targets = [];
+      if (hasConsole) {
+        const exact = byTitleConsole.get(t + "|" + consoleInfo(ng.console).key);
+        if (exact) targets = [exact];
+        else {
+          // une fiche du même titre sans console : on la complète plutôt que d'en créer une seconde
+          targets = (byTitle.get(t) || []).filter((id) => !merged[position.get(id)].console).slice(0, 1);
+        }
       } else {
-        merged.push({ ...emptyGame(), ...ng, id: ng.id });
+        targets = byTitle.get(t) || []; // fichier sans colonne console : toutes les fiches de ce titre
+      }
+      if (targets.length) {
+        targets.forEach((id) => patch(id, ng));
+        updated += targets.length;
+        targets.forEach((id) => {
+          const g = merged[position.get(id)];
+          if (g.console) byTitleConsole.set(t + "|" + consoleInfo(g.console).key, id);
+        });
+      } else {
+        const g = { ...emptyGame(), ...ng, id: ng.id };
+        merged.push(g);
+        position.set(g.id, merged.length - 1);
+        register(g);
         added++;
       }
     });
@@ -1705,9 +1858,9 @@ function Ludotheque({ user, onSignOut }) {
           )}
         </div>
         <div className="lt-header-right">
-          <div className={"lt-sync" + (syncError ? " err" : "")} title={syncError ? "Synchro en échec — nouvelle tentative…" : saving ? "Synchronisation…" : "Synchronisé"}>
+          <div className={"lt-sync" + (syncError ? " err" : "")} title={syncError ? (navigator.onLine === false ? "Hors ligne — modifications gardées sur l'appareil" : "Synchro en échec — nouvelle tentative…") : saving ? "Synchronisation…" : "Synchronisé"}>
             <i className={"lt-sync-dot" + (syncError ? " err" : saving ? " busy" : "")} />
-            <span className="lt-sync-text">{syncError ? "Synchro en échec" : saving ? "Synchronisation…" : games ? "Synchronisé" : ""}</span>
+            <span className="lt-sync-text">{syncError ? (navigator.onLine === false ? "Hors ligne" : "Synchro en échec") : saving ? "Synchronisation…" : games ? "Synchronisé" : ""}</span>
           </div>
           <MoreMenu
             items={[
@@ -1721,6 +1874,7 @@ function Ludotheque({ user, onSignOut }) {
                 : []),
               { label: "Harmoniser les genres", icon: <Tags size={16} />, onClick: harmonizeNow },
               { label: "Mot de passe", icon: <KeyRound size={16} />, onClick: () => setPasswordOpen(true) },
+              { label: "Recharger toute la collection", icon: <RefreshCw size={16} />, onClick: reloadAll },
               { divider: true },
               { label: "Importer un CSV", icon: <Upload size={16} />, onClick: () => setImporting(true) },
               { label: "Exporter une sauvegarde", icon: <Download size={16} />, onClick: exportBackup },
@@ -1802,7 +1956,41 @@ function Ludotheque({ user, onSignOut }) {
         </div>
       )}
 
-      {!games && <div className="lt-empty">Chargement…</div>}
+      {!games && loadState === "loading" && (
+        <div className="lt-empty">
+          {download ? (
+            <>
+              <div>Téléchargement de ta collection…</div>
+              <div className="lt-progress">
+                <span style={{ width: `${Math.round((download.done / download.total) * 100)}%` }} />
+              </div>
+              <div className="lt-empty-sub">
+                {download.done} / {download.total} jeux · une seule fois sur cet appareil
+              </div>
+            </>
+          ) : (
+            "Chargement…"
+          )}
+        </div>
+      )}
+
+      {!games && loadState === "error" && (
+        <div className="lt-empty">
+          <p style={{ margin: "0 0 14px" }}>
+            <b>Impossible de charger ta collection</b> (réseau ?). Rien n'est perdu : elle est toujours dans le cloud.
+          </p>
+          <button
+            className="lt-btn"
+            style={{ margin: "0 auto" }}
+            onClick={() => {
+              setLoadState("loading");
+              refreshFromCloud();
+            }}
+          >
+            <RefreshCw size={15} /> Réessayer
+          </button>
+        </div>
+      )}
 
       {games && filtered.length === 0 && (
         <div className="lt-empty">
