@@ -1323,6 +1323,7 @@ function Ludotheque({ user, onSignOut }) {
   const [syncError, setSyncError] = useState(false);
   const [loadState, setLoadState] = useState("loading"); // loading | ready | error
   const [download, setDownload] = useState(null); // { done, total } pendant un gros téléchargement
+  const [refreshing, setRefreshing] = useState(false); // lecture du cloud en cours
 
   const MIGRATED_KEY = "ludotheque-migrated";
 
@@ -1436,6 +1437,7 @@ function Ludotheque({ user, onSignOut }) {
   async function refreshFromCloud({ force = false } = {}) {
     if (refreshingRef.current || pendingRef.current || syncingRef.current) return;
     refreshingRef.current = true;
+    setRefreshing(true);
     try {
       if (force) stampsRef.current = new Map();
       const remote = await fetchStamps(supabase); // quelques Ko pour toute la collection
@@ -1457,6 +1459,7 @@ function Ludotheque({ user, onSignOut }) {
       else setLoadState("error"); // rien à afficher : message clair plutôt qu'une étagère vide
     } finally {
       refreshingRef.current = false;
+      setRefreshing(false);
       setDownload(null);
     }
   }
@@ -1669,6 +1672,13 @@ function Ludotheque({ user, onSignOut }) {
   }, [viewMode, groupByConsole, collapsed]);
 
   useEffect(() => {
+    const show = () => setNotice("L'app est prête : elle s'ouvrira même sans réseau.");
+    if (window.__ltOfflineReady) show();
+    window.addEventListener("ludotheque:offline-ready", show);
+    return () => window.removeEventListener("ludotheque:offline-ready", show);
+  }, []);
+
+  useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 9000);
     return () => clearTimeout(t);
@@ -1858,9 +1868,9 @@ function Ludotheque({ user, onSignOut }) {
           )}
         </div>
         <div className="lt-header-right">
-          <div className={"lt-sync" + (syncError ? " err" : "")} title={syncError ? (navigator.onLine === false ? "Hors ligne — modifications gardées sur l'appareil" : "Synchro en échec — nouvelle tentative…") : saving ? "Synchronisation…" : "Synchronisé"}>
-            <i className={"lt-sync-dot" + (syncError ? " err" : saving ? " busy" : "")} />
-            <span className="lt-sync-text">{syncError ? (navigator.onLine === false ? "Hors ligne" : "Synchro en échec") : saving ? "Synchronisation…" : games ? "Synchronisé" : ""}</span>
+          <div className={"lt-sync" + (syncError ? " err" : "")} title={syncError ? (navigator.onLine === false ? "Hors ligne — modifications gardées sur l'appareil" : "Synchro en échec — nouvelle tentative…") : saving ? "Synchronisation…" : refreshing ? "Mise à jour…" : "Synchronisé"}>
+            <i className={"lt-sync-dot" + (syncError ? " err" : saving || refreshing ? " busy" : "")} />
+            <span className="lt-sync-text">{syncError ? (navigator.onLine === false ? "Hors ligne" : "Synchro en échec") : saving ? "Synchronisation…" : refreshing ? "Mise à jour…" : games ? "Synchronisé" : ""}</span>
           </div>
           <MoreMenu
             items={[
@@ -3171,15 +3181,65 @@ function ConfigMissing() {
   );
 }
 
+// Dernier utilisateur connecté, mémorisé pour pouvoir ouvrir la copie locale quand le réseau est coupé.
+const LAST_USER_KEY = "ludotheque-last-user";
+function readLastUser() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAST_USER_KEY) || "null");
+    return v && v.id ? v : null;
+  } catch (e) {
+    return null;
+  }
+}
+function rememberUser(user) {
+  try {
+    if (user && user.id) localStorage.setItem(LAST_USER_KEY, JSON.stringify({ id: user.id, email: user.email || "" }));
+  } catch (e) {
+    /* ignore */
+  }
+}
+function forgetUser() {
+  try {
+    localStorage.removeItem(LAST_USER_KEY);
+  } catch (e) {
+    /* ignore */
+  }
+}
+// Quand le jeton a expiré et que le réseau est coupé, supabase-js ne renvoie « pas de session » qu'à cause d'une erreur réseau.
+function isNetworkAuthError(err) {
+  return !!err && (err.name === "AuthRetryableFetchError" || /failed to fetch|network|load failed|aborted/i.test(err.message || ""));
+}
+
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = chargement, null = déconnecté
+  const [authError, setAuthError] = useState(null);
 
   useEffect(() => {
     if (!supabaseConfigured) return;
-    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => setSession(next ?? null));
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (data.session) rememberUser(data.session.user);
+      setAuthError(error || null);
+      setSession(data.session ?? null);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
+      if (event === "SIGNED_OUT") forgetUser();
+      if (next) {
+        rememberUser(next.user);
+        setAuthError(null);
+      }
+      setSession(next ?? null);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  const signOut = async () => {
+    forgetUser();
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      await supabase.auth.signOut({ scope: "local" }); // hors ligne : au moins fermer la session sur cet appareil
+    }
+  };
 
   if (!supabaseConfigured) return <ConfigMissing />;
   if (session === undefined) {
@@ -3190,6 +3250,13 @@ export default function App() {
       </div>
     );
   }
-  if (!session) return <LoginScreen />;
-  return <Ludotheque key={session.user.id} user={session.user} onSignOut={() => supabase.auth.signOut()} />;
+  if (!session) {
+    // Hors ligne (ou réseau trop faible) avec un compte déjà connu : on ouvre la copie locale au lieu de redemander le mot de passe.
+    const last = readLastUser();
+    if (last && (navigator.onLine === false || isNetworkAuthError(authError))) {
+      return <Ludotheque key={last.id} user={last} onSignOut={signOut} />;
+    }
+    return <LoginScreen />;
+  }
+  return <Ludotheque key={session.user.id} user={session.user} onSignOut={signOut} />;
 }

@@ -47,7 +47,7 @@ export async function fetchStamps(supabase) {
 // Télécharge seulement les fiches demandées (par petits lots, images comprises).
 export async function fetchGamesByIds(supabase, ids, onProgress) {
   const out = [];
-  const CHUNK = 20;
+  const CHUNK = 10; // petits lots : sur un réseau faible, une réponse plus légère a plus de chances d'aboutir
   for (let i = 0; i < ids.length; i += CHUNK) {
     const part = ids.slice(i, i + CHUNK);
     const { data, error } = await supabase.from("games").select("id, data, updated_at").in("id", part);

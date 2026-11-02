@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { makeFetchWithTimeout } from "./net.js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -9,6 +10,7 @@ export const supabaseConfigured = Boolean(url && key);
 // lignes (RLS) côté Supabase qui garantit que chacun ne voit que ses données.
 export const supabase = supabaseConfigured
   ? createClient(url, key, {
+      global: { fetch: makeFetchWithTimeout(40000) },
       auth: {
         flowType: "implicit",
         persistSession: true,

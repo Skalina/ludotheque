@@ -82,6 +82,15 @@ Le premier lancement sur chaque appareil télécharge toute la collection une fo
 
 Suivi : Supabase > Organisation > Usage > « Egress ». Si le quota gratuit est dépassé, Supabase prévient puis peut restreindre l'API (erreurs 402) jusqu'à la remise à zéro du cycle de facturation ; les données ne sont pas supprimées.
 
+## Utilisation sans réseau
+
+- **L'app elle-même** (HTML, JS, icônes) est gardée sur l'appareil par un service worker : elle s'ouvre sans réseau, ou avec un réseau très faible, sans attendre. Le premier lancement en ligne l'installe (un message « L'app est prête » s'affiche).
+- **Ta collection** est dans la copie locale (voir ci-dessus).
+- **La connexion** : si le réseau est coupé et que le jeton a expiré (il dure 1 h), l'app ouvre quand même la copie locale du dernier compte connecté, au lieu de redemander le mot de passe. Les modifications faites hors ligne partent au retour du réseau. Une déconnexion volontaire (menu « ⋯ ») efface cette mémoire.
+- **Mises à jour** : après un déploiement, la nouvelle version est récupérée toute seule à l'ouverture suivante en ligne (un rechargement automatique peut survenir une fois).
+- Les appels à Supabase ne passent jamais par le cache ; ils sont abandonnés au bout de 40 s pour ne pas bloquer l'app sur un réseau trop faible.
+- Pour forcer la mise à jour du cache de l'app : fermer complètement le raccourci et le rouvrir en ligne.
+
 ## Important à savoir
 
 - Un jeu = une ligne en base ; seuls les jeux modifiés sont envoyés.
