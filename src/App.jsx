@@ -25,6 +25,7 @@ const GENRES = [
   "Plateforme", "Puzzle", "Roguelike", "RPG", "Simulation", "Sport", "Stratégie", "Tir (FPS / TPS)",
 ].sort((a, b) => a.localeCompare(b, "fr"));
 
+const NO_GENRE = "__none__"; // valeur du filtre « Sans genre »
 const MODES = ["Solo", "Multijoueur", "Coop"];
 const PEGI_OPTIONS = ["PEGI 3", "PEGI 7", "PEGI 12", "PEGI 16", "PEGI 18"];
 
@@ -1292,6 +1293,7 @@ function Ludotheque({ user, onSignOut }) {
   const [search, setSearch] = useState("");
   const [filterConsole, setFilterConsole] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterGenre, setFilterGenre] = useState("");
   const [sortBy, setSortBy] = useState("title");
   const [selected, setSelected] = useState(null); // game being viewed/edited
   const [creating, setCreating] = useState(false);
@@ -1626,7 +1628,7 @@ function Ludotheque({ user, onSignOut }) {
     return { updated, added };
   }
 
-  const activeFilters = (filterConsole ? 1 : 0) + (filterStatus ? 1 : 0) + (sortBy !== "title" ? 1 : 0);
+  const activeFilters = (filterConsole ? 1 : 0) + (filterStatus ? 1 : 0) + (filterGenre ? 1 : 0) + (sortBy !== "title" ? 1 : 0);
 
   const searching = search.trim().length > 0;
   const consoleKeys = useMemo(() => groupByMaker(games || []).flatMap((m) => m.consoles.map((c) => c.key)), [games]);
@@ -1658,6 +1660,7 @@ function Ludotheque({ user, onSignOut }) {
   function resetFilters() {
     setFilterConsole("");
     setFilterStatus("");
+    setFilterGenre("");
     setSortBy("title");
   }
 
@@ -1740,13 +1743,27 @@ function Ludotheque({ user, onSignOut }) {
     return Array.from(new Set(games.map((g) => g.console).filter(Boolean))).sort((a, b) => compareConsoleInfo(consoleInfo(a), consoleInfo(b)) || a.localeCompare(b));
   }, [games]);
 
+  // Genres réellement présents dans la collection, par ordre alphabétique
+  const genres = useMemo(() => {
+    if (!games) return [];
+    return Array.from(new Set(games.map((g) => g.genre).filter(Boolean))).sort((a, b) => a.localeCompare(b, "fr"));
+  }, [games]);
+  const hasNoGenre = useMemo(() => !!games && games.some((g) => !g.genre), [games]);
+
+  useEffect(() => {
+    if (!filterGenre || !games) return;
+    const available = filterGenre === NO_GENRE ? hasNoGenre : genres.includes(filterGenre);
+    if (!available) setFilterGenre(""); // ex. on vient de renseigner le dernier jeu « sans genre »
+  }, [genres, hasNoGenre, filterGenre, games]);
+
   const filtered = useMemo(() => {
     if (!games) return [];
     let list = games.filter((g) => {
       const matchSearch = g.title.toLowerCase().includes(search.toLowerCase());
       const matchConsole = !filterConsole || g.console === filterConsole;
       const matchStatus = !filterStatus || g.status === filterStatus;
-      return matchSearch && matchConsole && matchStatus;
+      const matchGenre = !filterGenre || (filterGenre === NO_GENRE ? !g.genre : g.genre === filterGenre);
+      return matchSearch && matchConsole && matchStatus && matchGenre;
     });
     const byTitle = (a, b) => a.title.localeCompare(b.title, "fr");
     list.sort((a, b) => {
@@ -1755,7 +1772,7 @@ function Ludotheque({ user, onSignOut }) {
       return byTitle(a, b);
     });
     return list;
-  }, [games, search, filterConsole, filterStatus, sortBy]);
+  }, [games, search, filterConsole, filterStatus, filterGenre, sortBy]);
 
   const counts = useMemo(() => {
     if (!games) return {};
@@ -1938,6 +1955,13 @@ function Ludotheque({ user, onSignOut }) {
               {STATUS_ORDER.map((s) => (
                 <option key={s} value={s}>{STATUS[s].label}</option>
               ))}
+            </select>
+            <select className="lt-select" value={filterGenre} onChange={(e) => setFilterGenre(e.target.value)} aria-label="Genre">
+              <option value="">Tous genres</option>
+              {genres.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+              {hasNoGenre && <option value={NO_GENRE}>Sans genre</option>}
             </select>
             <select className="lt-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Tri">
               <option value="title">Trier : titre</option>
@@ -2449,6 +2473,7 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
                   onChange={(e) => {
                     if (e.target.value === "__custom__") {
                       setCustomConsole(true);
+                      update("console", ""); // on repart d'un champ vide pour saisir la nouvelle console
                     } else {
                       setCustomConsole(false);
                       update("console", e.target.value);
@@ -2464,9 +2489,10 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
                 {customConsole && (
                   <input
                     type="text"
+                    autoFocus
                     style={{ marginTop: 6 }}
                     placeholder="Précise la console"
-                    value={consoleOptions.includes(form.console) ? "" : form.console}
+                    value={form.console}
                     onChange={(e) => update("console", e.target.value)}
                   />
                 )}
@@ -2491,6 +2517,7 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
                 onChange={(e) => {
                   if (e.target.value === "__custom__") {
                     setCustomGenre(true);
+                    update("genre", ""); // on repart d'un champ vide pour saisir le nouveau genre
                   } else {
                     setCustomGenre(false);
                     update("genre", e.target.value);
@@ -2506,9 +2533,10 @@ function GameModal({ game, isNew, consoleOptions, onClose, onSave, onDelete }) {
               {customGenre && (
                 <input
                   type="text"
+                  autoFocus
                   style={{ marginTop: 6 }}
                   placeholder="Précise le genre"
-                  value={GENRES.includes(form.genre) ? "" : form.genre}
+                  value={form.genre}
                   onChange={(e) => update("genre", e.target.value)}
                 />
               )}
