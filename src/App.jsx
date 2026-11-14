@@ -87,26 +87,27 @@ function getSpineStyle(name) {
 // Constructeurs, dans l'ordre d'affichage de la page d'accueil.
 const MAKERS = ["Sony", "Nintendo", "Microsoft", "Sega", "PC", "Autres"];
 
-// Consoles par constructeur ; l'affichage va de la plus récente à la plus ancienne (année de 1re sortie).
+// Consoles par constructeur. Affichage : d'abord les consoles de salon, puis les portables (`portable: true`),
+// chacune de la plus récente à la plus ancienne (année de 1re sortie).
 // `re` reconnaît les écritures courantes (en minuscules) : "PS5", "playstation 5", "GBA SP"…
 const CONSOLE_CATALOG = [
-  { key: "ps1", label: "PlayStation", maker: "Sony", year: 1994, re: /\bps ?1\b|\bpsx\b|\bps ?one\b|playstation ?1\b|^playstation$/ },
+  { key: "ps1", label: "PlayStation 1", maker: "Sony", year: 1994, re: /\bps ?1\b|\bpsx\b|\bps ?one\b|playstation ?1\b|^playstation$/ },
   { key: "ps2", label: "PlayStation 2", maker: "Sony", year: 2000, re: /\bps ?2\b|playstation ?2/ },
-  { key: "psp", label: "PSP", maker: "Sony", year: 2004, re: /\bpsp\b/ },
+  { key: "psp", label: "PSP", maker: "Sony", portable: true, year: 2004, re: /\bpsp\b/ },
   { key: "ps3", label: "PlayStation 3", maker: "Sony", year: 2006, re: /\bps ?3\b|playstation ?3/ },
-  { key: "psvita", label: "PS Vita", maker: "Sony", year: 2011, re: /vita/ },
+  { key: "psvita", label: "PS Vita", maker: "Sony", portable: true, year: 2011, re: /vita/ },
   { key: "ps4", label: "PlayStation 4", maker: "Sony", year: 2013, re: /\bps ?4\b|playstation ?4/ },
   { key: "ps5", label: "PlayStation 5", maker: "Sony", year: 2020, re: /\bps ?5\b|playstation ?5/ },
   { key: "nes", label: "NES", maker: "Nintendo", year: 1983, re: /^nes$|nintendo entertainment/ },
-  { key: "gb", label: "Game Boy", maker: "Nintendo", year: 1989, re: /^(game ?boy|gb)$|game ?boy (classic|pocket)/ },
+  { key: "gb", label: "Game Boy", maker: "Nintendo", portable: true, year: 1989, re: /^(game ?boy|gb)$|game ?boy (classic|pocket)/ },
   { key: "snes", label: "Super Nintendo", maker: "Nintendo", year: 1990, re: /\bsnes\b|super ?(nintendo|nes)/ },
   { key: "n64", label: "Nintendo 64", maker: "Nintendo", year: 1996, re: /\bn64\b|nintendo ?64/ },
-  { key: "gbc", label: "Game Boy Color", maker: "Nintendo", year: 1998, re: /\bgbc\b|game ?boy color/ },
+  { key: "gbc", label: "Game Boy Color", maker: "Nintendo", portable: true, year: 1998, re: /\bgbc\b|game ?boy color/ },
   { key: "gamecube", label: "GameCube", maker: "Nintendo", year: 2001, re: /game ?cube|\bngc\b|^gc$/ },
-  { key: "gba", label: "Game Boy Advance", maker: "Nintendo", year: 2001, re: /\bgba\b|game ?boy advance/ },
-  { key: "ds", label: "Nintendo DS", maker: "Nintendo", year: 2004, re: /^ds$|\bnds\b|nintendo ds\b|\bds ?lite\b|\bdsi\b/ },
+  { key: "gba", label: "Game Boy Advance", maker: "Nintendo", portable: true, year: 2001, re: /\bgba\b|game ?boy advance/ },
+  { key: "ds", label: "Nintendo DS", maker: "Nintendo", portable: true, year: 2004, re: /^ds$|\bnds\b|nintendo ds\b|\bds ?lite\b|\bdsi\b/ },
   { key: "wii", label: "Wii", maker: "Nintendo", year: 2006, re: /^wii$|^nintendo wii$/ },
-  { key: "3ds", label: "Nintendo 3DS", maker: "Nintendo", year: 2011, re: /[23]ds/ },
+  { key: "3ds", label: "Nintendo 3DS", maker: "Nintendo", portable: true, year: 2011, re: /[23]ds/ },
   { key: "wiiu", label: "Wii U", maker: "Nintendo", year: 2012, re: /wii ?u/ },
   { key: "switch", label: "Nintendo Switch", maker: "Nintendo", year: 2017, re: /switch(?! ?2)/ },
   { key: "switch2", label: "Nintendo Switch 2", maker: "Nintendo", year: 2025, re: /switch ?2/ },
@@ -133,6 +134,7 @@ function compareConsoleInfo(a, b) {
   const ma = MAKERS.indexOf(a.maker);
   const mb = MAKERS.indexOf(b.maker);
   if (ma !== mb) return ma - mb;
+  if (!!a.portable !== !!b.portable) return a.portable ? 1 : -1; // consoles de salon d'abord, portables ensuite
   if (a.year !== b.year) return b.year - a.year; // plus récent d'abord
   return a.label.localeCompare(b.label, "fr");
 }
